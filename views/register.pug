@@ -1,0 +1,23 @@
+extends layout.pug
+
+block content
+	.container
+		.row
+			.col
+				.card.border-dark
+					h5.card-header.white-text.text-center.py-4
+						strong Sign in
+					.card-body.px-lg-5.pt-0
+						form.md-form(style="color: #757575;", method="POST", action="/register")
+							input#username.form-control(type="text", name="name")
+							label(for="username") Username
+							input#password.form-control(type="password", name="password")
+							label(for="password") Password
+							input#email.form-control(type="email", name="email")
+							label(for="email") Email
+							select#gender.form-control(name='gender')
+								option(value='Male') Male
+								option(value='Woman') Woman
+								option(value='Other') Other
+							label(for="gender") Gender
+							button.btn.btn-outline-success.btn-rounded.btn-block.my-4.waves-effect.z-depth-0(type="submit") Log in
