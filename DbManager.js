@@ -1,4 +1,7 @@
 const Client = require('pg').Client;
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
+
 class Dbmanager{
 	constructor(){
 		this.client = new Client({
@@ -10,19 +13,56 @@ class Dbmanager{
 		});
 		this.client.connect();
 	}
-	createUser(username, password, email,gender){
-		return this.client.query(/*sql*/`
+	async createUser(username, password, email,gender, callback){
+		let hash = await bcrypt.hash(password, saltRounds)
+		this.client.query(/*sql*/`
 			INSERT INTO "users"(username,password,email,gender) VALUES($1,$2,$3,$4);
-			`, [username,password,email,gender])
+			`, [username,hash,email,gender]).then((r,err) => {
+				if(callback){
+					callback(e,err)
+				}
+			})
 	}
-	logUser(user_id,secret){
+	async authenticateUser(username,password, callback){
+		
+		this.client.query(/*sql*/`
+			SELECT * FROM "users" WHERE username = $1
+		`, [username]).then((res,err) => {
+			if(!res.rows[0]){
+				callback({authenticated:false, message: 'Wrong username!'})
+				return;
+			}else{
+				let status = {}
+				bcrypt.compare(password, res.rows[0].password).then((err, r) => {
+					if(!r){
+						status = {authenticated:false, message: 'Wrong password!'}
+					}
+					status = {authenticated: true, message: '', user: res.rows[0]}
+					callback(status)
+					return;
+				})
+			}
+		})
+
+	}
+	findSession(secret){
 		return this.client.query(/*sql*/`
-			BEGIN;
+			SELECT EXISTS (SELECT * FROM sessions WHERE SECRET = $1 AND logged = TRUE);
+		`, [secret])
+	}
+	login(user_id, secret){
+		return this.client.query(/*sql*/`
 			INSERT INTO sessions (user_id, secret) VALUES($1, $2) ON CONFLICT (user_id)
 			DO UPDATE
-			SET secret = $2
-			COMMIT;
-		`, [user_id, secret])
+			SET logged = true, secret = $2;
+		`, [user_id, secret]);
+	}
+	logout(secret){
+		return this.client(/*sql*/`
+			UPDATE Session
+			SET logged = false
+			WHERE secret = $1
+		`, [secret])
 	}
 	createTables(){
 		return this.client.query( /*sql*/ `
@@ -35,13 +75,6 @@ class Dbmanager{
 			"gender" text,
 			"created_at" timestamp DEFAULT NOW(),
 			"deleted_at" timestamp DEFAULT NULL
-		  );
-		  CREATE TABLE IF NOT EXISTS "sessions"(
-			id int PRIMARY KEY,
-			"user_id" int UNIQUE REFERENCES "users" ("id"),
-			"secret" TEXT UNIQUE,
-			"logged" BOOLEAN,
-			"created_at" timestamp DEFAULT NOW()
 		  );
 		  CREATE TABLE IF NOT EXISTS "classifieds" (
 			"id" SERIAL PRIMARY KEY,
@@ -110,6 +143,13 @@ class Dbmanager{
 			"created_at" timestamp DEFAULT NOW(),
 			"deleted_at" timestamp DEFAULT NULL,
 			"roleId" int NOT NULL REFERENCES "roles" ("id")
+		  );
+		  CREATE TABLE IF NOT EXISTS "sessions"(
+			  "id" SERIAL PRIMARY KEY,
+			  "user_id" int UNIQUE NOT NULL REFERENCES "users" ("id"),
+			  "secret" text UNIQUE,
+			  "logged" boolean,
+			  "created_at" timestamp DEFAULT NOW()
 		  );
 		  COMMIT`)
 	}
