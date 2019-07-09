@@ -1,0 +1,12 @@
+extends layout.pug
+mixin card(classified)
+	.card.border-dark.mb-4(style="max-width: 20rem;")
+		.card-header.bg-light.text-center
+			button(class="btn", href="/classified/" + classified.c_id, style="font-size:25px").text-primary.card-title=classified.title
+		img.card-img-bottom(src=classified.picture_path, alt="Card image")
+block content
+	.container
+		each row,idx in classifieds
+			.card-deck
+				each classified in row
+					+card(classified)

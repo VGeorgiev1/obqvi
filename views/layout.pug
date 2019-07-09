@@ -2,7 +2,10 @@ html
 	head
 		script(src='https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js')
 		link(href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-GJzZqFGwb1QTTN6wy59ffF1BuGJpLSa9DkKMp0DgiMDm4iYMj70gZWKYbI706tWS" crossorigin="anonymous")
-		link(rel="stylesheet" type="text/css" href="./layout.css")
+		link(rel="stylesheet" type="text/css" href="/css/layout.css")
+		script(src="https://code.jquery.com/jquery-1.12.4.js")
+		script(src="https://code.jquery.com/ui/1.12.1/jquery-ui.js")
+		link(rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css")
 		script(src='https://cdn.socket.io/socket.io-1.4.5.js')
 		script(src='https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/js/bootstrap.min.js')
 		block scripts
@@ -12,18 +15,15 @@ html
 			button.navbar-toggler(type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation")
 				span.navbar-toggler-icon
 			#navbarSupportedContent.collapse.navbar-collapse
-				ul.navbar-nav.mr-auto
-					if !auth
+			ul.navbar-nav
+				if !auth
+					li.nav-item
+						a.nav-link(href="/register") Register
+					li.nav-item
+						a.nav-link(href="/login") Log in
+				else
+					ul.nav.navbar-nav.navbar-right
 						li.nav-item
-							a.nav-link(href="/register") Sign up
-						li.nav-item
-							a.nav-link(href="/login") Sign in
-					else
-						ul.nav.navbar-nav.navbar-right
-						span.navbar-text="Hello, " + user + "!"
-							li.nav-item
-								a.nav-link(href="/people") Friends
-							li.nav-item
-								a.nav-link(href="/logout") Logout
+							a.nav-link(href="/logout") Logout
 		block content
 

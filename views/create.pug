@@ -1,0 +1,23 @@
+extends layout.pug
+
+block content
+	.container
+		.row
+			.col
+				.card.border-dark
+					h5.card-header.white-text.text-center.py-4
+						strong Create classifield
+					.card-body.px-lg-5.pt-0
+						form.md-form(style="color: #757575;", method="POST", action="/classified", enctype="multipart/form-data")
+							input#title.form-control(type="text", name="title")
+							label(for="Title") Title
+							input#description.form-control(type="text", name="description")
+							label(for="description") Description
+							div.custom-file
+								input#picture.custom-file-input(type="file", name="picture")
+								label.custom-file-label(for="picture") Picture of the goods
+							label(for="quantity") Quantity
+							input.form-control(type='number', name='quantity', min='1', max='5')
+							if error
+								.alert.alert-danger(role='alert')=error
+							button.btn.btn-outline-success.btn-rounded.btn-block.my-4.waves-effect.z-depth-0(type="submit") Create

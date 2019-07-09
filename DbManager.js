@@ -23,8 +23,12 @@ class Dbmanager{
 				}
 			})
 	}
-	async authenticateUser(username,password, callback){
-		
+	getUserClassfieds(user_id){
+		return this.client.query(/*sql*/`
+			SELECT * FROM "classifieds" WHERE creator_id = $1
+		`,[user_id])
+	}
+	authenticateUser(username,password, callback){
 		this.client.query(/*sql*/`
 			SELECT * FROM "users" WHERE username = $1
 		`, [username]).then((res,err) => {
@@ -43,11 +47,10 @@ class Dbmanager{
 				})
 			}
 		})
-
 	}
 	findSession(secret){
 		return this.client.query(/*sql*/`
-			SELECT EXISTS (SELECT * FROM sessions WHERE SECRET = $1 AND logged = TRUE);
+			SELECT * FROM sessions WHERE SECRET = $1 AND logged = TRUE;
 		`, [secret])
 	}
 	login(user_id, secret){
@@ -63,6 +66,25 @@ class Dbmanager{
 			SET logged = false
 			WHERE secret = $1
 		`, [secret])
+	}
+	createClassified(title,creator,description,picture_path,quantity){
+		return this.client.query(/*sql*/`
+			INSERT INTO "classifieds" (title,creator_id,description,picture_path,quantity)
+			VALUES($1,$2,$3,$4,$5)
+		`, [title,creator,description,picture_path,quantity])
+	}
+	getJoinedClassified(){
+		return this.client.query(/*sql*/`
+			SELECT c.id as c_id,u.id,c.title,c.description,c.picture_path,c.quantity,u.username,u.email FROM "classifieds" as c
+			INNER JOIN "users" u ON u.id = c.creator_id
+		`)
+	}
+	stopSession(user_id){
+		return this.client.query(/*sql*/`
+			UPDATE "sessions"
+			SET logged = false
+			WHERE user_id = $1
+		`, [user_id])
 	}
 	createTables(){
 		return this.client.query( /*sql*/ `
@@ -82,7 +104,7 @@ class Dbmanager{
 			"title" text,
 			"description" text,
 			"picture_path" text,
-			"status" text,
+			"status" text DEFAULT 'open',
 			"quantity" int,
 			"created_at" date DEFAULT NOW(),
 			"closed_at" date DEFAULT NULL
