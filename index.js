@@ -7,20 +7,40 @@ const db_mannager = new DbManager();
 const fileUpload = require('express-fileupload');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
-const paypal = require('paypal-rest-sdk')
-
+const paypal = require('paypal-rest-sdk');
+const bgn2dollarRate = 1.74;
 app.use(express.static('public'));
 app.set('view engine', 'pug');
 app.use(cookieParser());
+
 app.use(bodyParser.urlencoded({extended: true}));
+app.use(bodyParser.json())
 app.use(fileUpload());
+
 paypal.configure({
     'mode': 'sandbox', //sandbox or live 
     'client_id': process.env.PAYPAL_KEY, // please provide your client id here 
     'client_secret': process.env.PAYPAL_SECRET // provide your client secret here 
 });
 
+var create_webhook_json = {
+    "url": "https://0ce4dbb9.ngrok.io/confirm",
+    "event_types": [{
+        "name": "PAYMENT.SALE.COMPLETED"
+    },{
+        "name": "PAYMENT.SALE.DENIED"
+    }]
+};
 
+paypal.notification.webhook.create(create_webhook_json, function (error, webhook) {
+    if (error) {
+        console.log(error.response);
+        throw error;
+    } else {
+        console.log("Create webhook Response");
+        console.log(webhook);
+    }
+});
 const loginware = function (req, res, next) {
     if(req.cookies.sessionToken){
         db_mannager.findSession(req.cookies.sessionToken).then((ses,err)=>{
@@ -29,7 +49,9 @@ const loginware = function (req, res, next) {
             }
             if(ses){
                 req.authenticated = true
-                req.userId = ses.rows[0].user_id
+                if(ses.rows[0]){
+                    req.userId = ses.rows[0].user_id
+                }
                 next()
             }else{
                 next()
@@ -40,6 +62,11 @@ const loginware = function (req, res, next) {
     }
 }
 app.use(loginware)
+app.post('/info', (req,res)=>{
+    console.log('called?')
+    console.log(req.body)
+    res.send('hello')
+})
 app.get('/promo',(req,res) => {
     if(!req.authenticated){res.redirect('/login'); return}
     db_mannager.getUserClassfieds(req.userId)
@@ -47,12 +74,52 @@ app.get('/promo',(req,res) => {
         res.render('promo', {classifieds: rows.rows})
     })
 })
-app.post('/calc', (req, res)=>{
-
-    const days = Math.ceil((new Date(req.body.date)-new Date())/(1000*60*60*24));
-    
-
+app.get('/promo/success', (req,res)=>{
+    res.send('congrats')
+})
+app.post('/confrim' , (req,res)=>{
+    console.log(req.body)
     res.send('ok')
+})
+app.post('/promo', (req,res)=>{
+        // create payment object
+    let calculation = calcPromotion(req.body.date, Object.keys(req.body).filter(k=>k!='date').length)
+    if(calculation.error){
+        res.send(calculation)
+        return;
+    }
+    var payment = {
+        "intent": "authorize",
+        "payer": {
+            "payment_method": "paypal"
+        },
+        "redirect_urls": {
+            "return_url": "https://0ce4dbb9.ngrok.io/promo/success",
+            "cancel_url": "https://0ce4dbb9.ngrok.io/promo/err"
+        },
+        "transactions": [{
+            "amount": {
+                "total": calculation.value,
+                "currency": "USD"
+            },
+            "description": "Classified promotions for: " + Object.keys(req.body).filter(k=>k!='date').join(', ')
+        }]
+    }
+    console.log(calculation)
+	
+	//call the create Pay method 
+    createPay( payment ) 
+       .then( ( transaction ) => {
+            res.redirect(transaction.links.filter(l=>l.method == 'REDIRECT')[0].href)
+        })
+        .catch( ( err ) => { 
+            console.log( err.response ); 
+            res.redirect('/err');
+        });
+})
+
+app.post('/calculate', (req, res)=>{
+    res.send(calcPromotion(req.body.date,req.body.classifieds))
 })
 app.get('/register', (req,res)=>{
     if(req.authenticated) {res.redirect('/list'); return}
@@ -154,4 +221,14 @@ var createPay = ( payment ) => {
         }); 
     });
 }						
-	
+function calcPromotion(date, classifieds){
+    const days = Math.ceil((new Date(date)-new Date())/(1000*60*60*24));
+
+    if(isNaN(days) || days <= 0) {
+        return({error: 'The period musts be at least one day'})
+    }else if(!classifieds || classifieds <=0){
+        return({error: 'Please select a classified!'})
+    }else{
+        return({value : ((days * 2 * classifieds) / bgn2dollarRate).toFixed(2)})
+    }
+}

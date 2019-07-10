@@ -2,20 +2,18 @@ extends layout.pug
 block content
 	.container
 		h1="Select an classfied for promotion: "
-		form#form.md-form(style="color: #757575;", method="POST", action="/calc")
+		form#form.md-form(style="color: #757575;", method="POST", action="/promo")
 			.list-group
 				each c in classifieds
 					.list-group-item=c.title
 						input#form-check-input(name=c.title type="checkbox" style="float:right")
 			label(for="datepicker") Period:
 			input#datepicker.md-form(type="text", name="date" style="margin-top: 5%")
-			button.btn.btn-outline-success.btn-rounded.btn-block.my-4.waves-effect.z-depth-0(type="submit") Calculate
+			button.btn.btn-outline-success.btn-rounded.btn-block.my-4.waves-effect.z-depth-0(type="submit") Promote
+			button.btn.btn-outline-info.btn-rounded.btn-block.my-4.waves-effect.z-depth-0(type="button", onclick="calculate()") Calculate
+		#errmsg.alert.alert-danger(role='alert', style="display:none")
+		#success.alert.alert-primary(role='alert', style="display:none")
+		script(src="/js/promotion.js")
 
-		script.
-			$( function() {
-				$( "#datepicker" ).datepicker({
-					minDate: new Date
-				});
-			} );
-		h3="The promotion period starts when the transactaion is completed"
+		h3="The promotion period starts when the transactaion is completed!"
 						
