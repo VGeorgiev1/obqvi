@@ -23,6 +23,12 @@ class Dbmanager{
 				}
 			})
 	}
+	createPromotion(transaction_id,classified_id,end_date,status){
+		return this.client.query(/*sql*/`
+			INSERT INTO "promotions"(transaction_id,classified_id,end_date, status)
+			VALUES($1,$2,TO_TIMESTAMP($3, 'MM/DD/YYYY'),$4)
+		`,[transaction_id,classified_id,end_date,status])
+	}
 	getUserClassfieds(user_id){
 		return this.client.query(/*sql*/`
 			SELECT * FROM "classifieds" WHERE creator_id = $1
@@ -47,6 +53,44 @@ class Dbmanager{
 				})
 			}
 		})
+	}
+	createTransaction(transaction_id, state, sender_id, amount){
+		return this.client.query(/*sql*/`
+			INSERT INTO "promotion_transactions"(transaction_id, state,sender_id, amount) VALUES($1,$2,$3,$4)
+		`, [transaction_id, state,sender_id,amount])
+	}
+	prepareTransaction(transaction_id,token, payer_id){
+		return this.client.query(/*sql*/`
+			UPDATE promotion_transactions
+			SET payer_id = $1, token = $2
+			WHERE transaction_id = $3 
+		`, [payer_id, token, transaction_id])
+	}
+	setTransactionState(transaction_id, state){
+		return this.client.query(/*sql*/`
+			UPDATE promotion_transactions
+			SET state = $2
+			WHERE transaction_id = $1 
+		`,[transaction_id,state])
+	}
+	setPromotionStatus(transaction_id, state){
+		return this.client.query(/*sql*/`
+			UPDATE promotions
+			SET status = $1
+			WHERE transaction_id = $2
+		`,[state, transaction_id])
+	}
+	getPromotions(transaction_id){
+		return this.client.query(/*sql*/`
+			SELECT * FROM "promotions"
+			WHERE transaction_id = $1
+		`,[transaction_id])
+	}
+	findTransaction(transaction_id){
+		return this.client.query(/*sql*/`
+			SELECT * FROM promotion_transactions
+			WHERE transaction_id = $1
+		`,[transaction_id])
 	}
 	findSession(secret){
 		return this.client.query(/*sql*/`
@@ -121,11 +165,14 @@ class Dbmanager{
 		  
 		  CREATE TABLE IF NOT EXISTS "promotion_transactions" (
 			"id" SERIAL PRIMARY KEY,
-			"sender" int NOT NULL REFERENCES "users" ("id"),
+			"transaction_id"  TEXT NOT NULL,
+			"state" TEXT NOT NULL,
+			"sender_id" int NOT NULL REFERENCES "users" ("id"),
 			"created_at" timestamp DEFAULT NOW(),
-			"amount" int NOT NULL
+			"payer_id" TEXT,
+			"token" TEXT,
+			"amount" NUMERIC NOT NULL
 		  );
-		  
 		  CREATE TABLE IF NOT EXISTS "user_transactions"(
 			"id" SERIAL PRIMARY KEY,
 			"sender" int NOT NULL REFERENCES "users" ("id"),
@@ -140,7 +187,14 @@ class Dbmanager{
 			"account_number" text NOT NULL,
 			"created_at" timestamp DEFAULT NOW()
 		  );
-		  
+		  CREATE TABLE IF NOT EXISTS "promotions"(
+			  "id" SERIAL PRIMARY KEY,
+			  "transaction_id" TEXT REFERENCES  "promotion_transactions"("transaction_id"),
+			  "classified_id" int  REFERENCES "classifieds"("id"),
+			  "start_date" timestamp DEFAULT NOW(),
+			  "end_date" timestamp NOT NULL,
+			  "status" TEXT
+		  );
 		  CREATE TABLE IF NOT EXISTS "operations" (
 			"id" SERIAL PRIMARY KEY,
 			"action" text

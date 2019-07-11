@@ -23,24 +23,6 @@ paypal.configure({
     'client_secret': process.env.PAYPAL_SECRET // provide your client secret here 
 });
 
-var create_webhook_json = {
-    "url": "https://0ce4dbb9.ngrok.io/confirm",
-    "event_types": [{
-        "name": "PAYMENT.SALE.COMPLETED"
-    },{
-        "name": "PAYMENT.SALE.DENIED"
-    }]
-};
-
-paypal.notification.webhook.create(create_webhook_json, function (error, webhook) {
-    if (error) {
-        console.log(error.response);
-        throw error;
-    } else {
-        console.log("Create webhook Response");
-        console.log(webhook);
-    }
-});
 const loginware = function (req, res, next) {
     if(req.cookies.sessionToken){
         db_mannager.findSession(req.cookies.sessionToken).then((ses,err)=>{
@@ -62,28 +44,84 @@ const loginware = function (req, res, next) {
     }
 }
 app.use(loginware)
-app.post('/info', (req,res)=>{
-    console.log('called?')
-    console.log(req.body)
-    res.send('hello')
-})
 app.get('/promo',(req,res) => {
     if(!req.authenticated){res.redirect('/login'); return}
     db_mannager.getUserClassfieds(req.userId)
     .then((rows)=>{
-        res.render('promo', {classifieds: rows.rows})
+        res.render('promo', {classifieds: rows.rows, auth: req.authenticated})
     })
 })
 app.get('/promo/success', (req,res)=>{
-    res.send('congrats')
+    db_mannager.prepareTransaction(req.query.paymentId, req.query.token, req.query.PayerID)
+    .then(r=>{
+        res.send("congrats")   
+    })
 })
 app.post('/confrim' , (req,res)=>{
-    console.log(req.body)
-    res.send('ok')
+    switch(req.body.event_type){
+        case "PAYMENTS.PAYMENT.CREATED":
+                db_mannager.setTransactionState(req.body.resource.id, req.body.resource.state)
+                .then(()=>{
+                    console.log(req.body)
+                    if(req.body.resource.state = 'created'){
+                        db_mannager.findTransaction(req.body.resource.id).then((r)=>{    
+                            if(r.rows && r.rows[0]){
+                                let payer_id = r.rows[0].payer_id
+                                let transaction_id = r.rows[0].transaction_id
+                                   if(transaction_id == req.body.resource.id){
+                                    var execute_payment_json = {
+                                        "payer_id": payer_id,
+                                        "transactions": [{
+                                            "amount": {
+                                                "currency": "USD",
+                                                "total": req.body.resource.transactions[0].amount.total
+                                            }
+                                        }]
+                                    };
+                                    paypal.payment.execute(transaction_id, execute_payment_json, function (error, payment) {
+                                        if (error) {
+                                            console.log(error.response);
+                                            throw error;
+                                        } else {
+                                            
+                                            console.log(payment);
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+                break;
+        case "PAYMENT.AUTHORIZATION.CREATED":
+                console.log(req.body)
+                let transaction_id = req.body.resource.parent_payment
+                paypal.authorization.get(req.body.resource.id, (err, auth)=>{
+                    if(err){
+                        console.log(err)
+                    }else{
+                        if(auth.state != 'captured'){
+                            paypal.authorization.capture(req.body.resource.id, {amount: {total: req.body.resource.amount.total, currency: req.body.resource.amount.currency}}, function(error,auth){
+                                if(error){
+                                    console.log(error)
+                                }else{
+                                    db_mannager.setTransactionState(transaction_id, "completed").then(()=>{
+                                        db_mannager.setPromotionStatus(transaction_id, "authorized").then((r)=>{
+                                            console.log('prmotions updated')
+                                        })
+                                    })
+                                }
+                            })
+                        }
+                    }
+                })
+                break;
+    }
 })
 app.post('/promo', (req,res)=>{
-        // create payment object
-    let calculation = calcPromotion(req.body.date, Object.keys(req.body).filter(k=>k!='date').length)
+    console.log(req.body)
+    let classifieds_keys = Object.keys(req.body).filter(k=>k!='date')
+    let calculation = calcPromotion(req.body.date, classifieds_keys.length)
     if(calculation.error){
         res.send(calculation)
         return;
@@ -94,8 +132,8 @@ app.post('/promo', (req,res)=>{
             "payment_method": "paypal"
         },
         "redirect_urls": {
-            "return_url": "https://0ce4dbb9.ngrok.io/promo/success",
-            "cancel_url": "https://0ce4dbb9.ngrok.io/promo/err"
+            "return_url": "https://86cc18b1.ngrok.io/promo/success",
+            "cancel_url": "https://86cc18b1.ngrok.io/promo/err"
         },
         "transactions": [{
             "amount": {
@@ -104,20 +142,27 @@ app.post('/promo', (req,res)=>{
             },
             "description": "Classified promotions for: " + Object.keys(req.body).filter(k=>k!='date').join(', ')
         }]
-    }
-    console.log(calculation)
-	
-	//call the create Pay method 
+    } 
     createPay( payment ) 
        .then( ( transaction ) => {
-            res.redirect(transaction.links.filter(l=>l.method == 'REDIRECT')[0].href)
+            db_mannager.createTransaction(transaction.id, transaction.state, req.userId, Number(transaction.transactions[0].amount.total))
+            .then((r)=>{
+                let promises = []
+                for(let key of classifieds_keys){
+                    if(req.body[key].lenght != 1){
+                        promises.push(db_mannager.createPromotion(transaction.id, Number(req.body[key][0]), req.body.date, "awaitin_auth"))
+                    }
+                }
+                Promise.all(promises).then(()=>{
+                    res.redirect(transaction.links.filter(l=>l.method == 'REDIRECT')[0].href)
+                })
+            })
         })
         .catch( ( err ) => { 
             console.log( err.response ); 
             res.redirect('/err');
         });
 })
-
 app.post('/calculate', (req, res)=>{
     res.send(calcPromotion(req.body.date,req.body.classifieds))
 })
