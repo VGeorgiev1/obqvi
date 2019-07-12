@@ -33,7 +33,7 @@ class Dbmanager{
 		return this.client.query(/*sql*/`
 			SELECT * FROM "classifieds" as cl
 			LEFT JOIN "promotions" as p ON p.classified_entity = cl.entity_id
-			WHERE creator_id = $1
+			WHERE creator_id = $1  
 		`,[user_id])
 	}
 	authenticateUser(username,password, callback){
@@ -91,7 +91,7 @@ class Dbmanager{
 	getPromotions(transaction_id){
 		return this.client.query(/*sql*/`
 			SELECT * FROM "promotions"
-			WHERE transaction_id = $1
+			WHERE transaction_id = $1 AND status = 
 		`,[transaction_id])
 	}
 	findTransaction(transaction_id){
