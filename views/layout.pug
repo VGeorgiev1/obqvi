@@ -15,13 +15,20 @@ html
 			button.navbar-toggler(type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation")
 				span.navbar-toggler-icon
 			#navbarSupportedContent.collapse.navbar-collapse
-			ul.navbar-nav
+			ul.navbar-nav.navbar-left
 				if !auth
 					li.nav-item
 						a.nav-link(href="/register") Register
 					li.nav-item
 						a.nav-link(href="/login") Log in
+					
 				else
+					li.nav-item
+						a.nav-link(href="/classified/my") My classifieds
+					li.nav-item
+						a.nav-link(href="/promo") Promo
+					li.nav-item
+						a.nav-link(href="/classified/new") Create classified	
 					ul.nav.navbar-nav.navbar-right
 						li.nav-item
 							a.nav-link(href="/logout") Logout

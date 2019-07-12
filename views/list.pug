@@ -1,12 +1,21 @@
 extends layout.pug
 mixin card(classified)
-	.card.border-dark.mb-4(style="max-width: 20rem;")
+	.card.border-dark(style="max-width: 12rem;")
 		.card-header.bg-light.text-center
-			button(class="btn", href="/classified/" + classified.c_id, style="font-size:25px").text-primary.card-title=classified.title
+			a(href="/classified/" + classified.c_id)
+				button(class="btn",style="font-size:25px").text-primary.card-title=classified.title
 		img.card-img-bottom(src=classified.picture_path, alt="Card image")
 block content
 	.container
-		each row,idx in classifieds
-			.card-deck
-				each classified in row
-					+card(classified)
+		.row
+			.col-lg-3
+				.list-group
+					a.list-group-item.active(href='#') Category 1
+					a.list-group-item(href='#') Category 2
+					a.list-group-item(href='#') Category 3
+			.col-sm-8
+				each row,idx in classifieds
+					.row.mb-4
+						.card-deck
+							each classified in row
+								+card(classified)

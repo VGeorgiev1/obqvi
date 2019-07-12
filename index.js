@@ -49,75 +49,95 @@ app.get('/promo',(req,res) => {
     db_mannager.getUserClassfieds(req.userId)
     .then((rows)=>{
         res.render('promo', {classifieds: rows.rows, auth: req.authenticated})
+    }).catch(()=>{
+        res.render('general_error', {error: "There was a problemm please try again later."})
     })
 })
 app.get('/promo/success', (req,res)=>{
     db_mannager.prepareTransaction(req.query.paymentId, req.query.token, req.query.PayerID)
     .then(r=>{
-        res.send("congrats")   
+        db_mannager.getPromotions(req.query.paymentId)
+        .then((rows)=>{
+            if(rows.rows){
+                res.render('promo_success', {classifieds: rows.rows, auth: req.authenticated})
+                return;
+            }
+            res.render('general_error', {error: "There was a problem preparing your transactions!"})
+       })
+    }).catch((e)=>{
+        res.render('general_error', {error: "There was a problem preparing your transactions!"})
     })
+})
+app.get('/', (req,res)=>{
+    res.redirect('/list')
+    return;
 })
 app.post('/confrim' , (req,res)=>{
     switch(req.body.event_type){
         case "PAYMENTS.PAYMENT.CREATED":
-                db_mannager.setTransactionState(req.body.resource.id, req.body.resource.state)
-                .then(()=>{
-                    console.log(req.body)
-                    if(req.body.resource.state = 'created'){
-                        db_mannager.findTransaction(req.body.resource.id).then((r)=>{    
-                            if(r.rows && r.rows[0]){
-                                let payer_id = r.rows[0].payer_id
-                                let transaction_id = r.rows[0].transaction_id
-                                   if(transaction_id == req.body.resource.id){
-                                    var execute_payment_json = {
-                                        "payer_id": payer_id,
-                                        "transactions": [{
-                                            "amount": {
-                                                "currency": "USD",
-                                                "total": req.body.resource.transactions[0].amount.total
-                                            }
-                                        }]
-                                    };
-                                    paypal.payment.execute(transaction_id, execute_payment_json, function (error, payment) {
-                                        if (error) {
-                                            console.log(error.response);
-                                            throw error;
-                                        } else {
-                                            
-                                            console.log(payment);
-                                        }
-                                    });
-                                }
-                            }
-                        });
-                    }
-                });
-                break;
-        case "PAYMENT.AUTHORIZATION.CREATED":
+            db_mannager.setTransactionState(req.body.resource.id, req.body.resource.state)
+            .then(()=>{
                 console.log(req.body)
-                let transaction_id = req.body.resource.parent_payment
-                paypal.authorization.get(req.body.resource.id, (err, auth)=>{
-                    if(err){
-                        console.log(err)
-                    }else{
-                        if(auth.state != 'captured'){
-                            paypal.authorization.capture(req.body.resource.id, {amount: {total: req.body.resource.amount.total, currency: req.body.resource.amount.currency}}, function(error,auth){
-                                if(error){
-                                    console.log(error)
-                                }else{
-                                    db_mannager.setTransactionState(transaction_id, "completed").then(()=>{
-                                        db_mannager.setPromotionStatus(transaction_id, "authorized").then((r)=>{
-                                            console.log('prmotions updated')
-                                        })
-                                    })
-                                }
-                            })
+                if(req.body.resource.state = 'created'){
+                    db_mannager.findTransaction(req.body.resource.id).then((r)=>{    
+                        if(r.rows && r.rows[0]){
+                            let payer_id = r.rows[0].payer_id
+                            let transaction_id = r.rows[0].transaction_id
+                                if(transaction_id == req.body.resource.id){
+                                var execute_payment_json = {
+                                    "payer_id": payer_id,
+                                    "transactions": [{
+                                        "amount": {
+                                            "currency": "USD",
+                                            "total": req.body.resource.transactions[0].amount.total
+                                        }
+                                    }]
+                                };
+                                paypal.payment.execute(transaction_id, execute_payment_json, function (error, payment) {
+                                    if (error) {
+                                        console.log(error.response);
+                                        throw error;
+                                    } else {
+                                        console.log(payment);
+                                    }
+                                });
+                            }
                         }
+                    });
+                }
+            });
+            break;
+        case "PAYMENT.AUTHORIZATION.CREATED":
+            console.log(req.body)
+            let transaction_id = req.body.resource.parent_payment
+            paypal.authorization.get(req.body.resource.id, (err, auth)=>{
+                if(err){
+                    console.log(err)
+                }else{
+                    if(auth.state != 'captured'){
+                        paypal.authorization.capture(req.body.resource.id, {amount: {total: req.body.resource.amount.total, currency: req.body.resource.amount.currency}}, function(error,auth){
+                            if(error){
+                                console.log(error)
+                            }else{
+                                db_mannager.setTransactionState(transaction_id, "completed").then((r)=>{
+                                    console.log('transaction updated')
+                                    db_mannager.setPromotionStatus(transaction_id, "authorized").then((r)=>{
+                                        console.log('prmotions updated')
+                                    })
+                                })
+                            }
+                        })
                     }
-                })
-                break;
+                }
+            })
+            break;
     }
 })
+
+app.get('/promo/error', (req,res)=>{
+    res.render('general_error', {error: "Ther was a problem with your transaction. Please try again later"});
+})
+
 app.post('/promo', (req,res)=>{
     console.log(req.body)
     let classifieds_keys = Object.keys(req.body).filter(k=>k!='date')
@@ -126,14 +146,15 @@ app.post('/promo', (req,res)=>{
         res.send(calculation)
         return;
     }
+    console.log(classifieds_keys)
     var payment = {
         "intent": "authorize",
         "payer": {
             "payment_method": "paypal"
         },
         "redirect_urls": {
-            "return_url": "https://86cc18b1.ngrok.io/promo/success",
-            "cancel_url": "https://86cc18b1.ngrok.io/promo/err"
+            "return_url": "https://80fb30e0.ngrok.io/promo/success",
+            "cancel_url": "https://80fb30e0.ngrok.io/promo/error"
         },
         "transactions": [{
             "amount": {
@@ -142,25 +163,33 @@ app.post('/promo', (req,res)=>{
             },
             "description": "Classified promotions for: " + Object.keys(req.body).filter(k=>k!='date').join(', ')
         }]
-    } 
+    }
     createPay( payment ) 
        .then( ( transaction ) => {
             db_mannager.createTransaction(transaction.id, transaction.state, req.userId, Number(transaction.transactions[0].amount.total))
             .then((r)=>{
+                console.log(r)
                 let promises = []
-                for(let key of classifieds_keys){
-                    if(req.body[key].lenght != 1){
-                        promises.push(db_mannager.createPromotion(transaction.id, Number(req.body[key][0]), req.body.date, "awaitin_auth"))
+                db_mannager.getTransaction(transaction.id).then(t=>{
+                    console.log(t)
+                    for(let key of classifieds_keys){
+                        console.log(transaction.id)
+                        if(req.body[key].lenght != 1){
+                            promises.push(db_mannager.createPromotion(transaction.id, Number(key), req.body.date, "awaiting_auth"))
+                        }
                     }
-                }
-                Promise.all(promises).then(()=>{
-                    res.redirect(transaction.links.filter(l=>l.method == 'REDIRECT')[0].href)
+                    Promise.all(promises).then(()=>{
+                        res.redirect(transaction.links.filter(l=>l.method == 'REDIRECT')[0].href)
+                    })
                 })
+            }).catch((e)=>{
+                console.log(e)
+                res.render('promo', {error: "There was a problem with craeting yout transaction. Please try again"});
             })
         })
         .catch( ( err ) => { 
             console.log( err.response ); 
-            res.redirect('/err');
+            res.render('promo', {error: "There was a prolbem with creating your payment. Please try again."});
         });
 })
 app.post('/calculate', (req, res)=>{
@@ -182,6 +211,38 @@ app.post('/register', (req,res)=>{
         }) 
     }
 })
+app.get('/classified/my', (req,res)=>{
+    
+})
+app.post('/comment/new', (req,res)=>{
+    if(!req.authenticated) {res.send({error: "No authentication"})}
+    db_mannager.createComment(req.userId, req.body.entity, req.body.comment).then((r)=>{
+        res.send({})
+    }).catch(e=>{
+        console.log(e)
+        res.send({error: "there was a problem please try again later"})
+    })
+})
+app.get('/classified/new', (req,res)=>{
+    if(!req.authenticated) {res.redirect('/login')};
+    console.log('tf')
+    res.render('create', {auth: req.authenticated})
+})
+app.get('/classified/:id', (req,res)=>{
+    db_mannager.getClassified(req.params.id)
+    .then((r)=>{
+        if(r.rowCount == 0){
+            res.render('general_error', {error: 'Classified not found!'})
+        }else{
+            let comments = []
+            let classified = {}
+            res.render('classified', {c:r.rows[0],comments: r.rows, auth: req.authenticated})
+        }
+    }).catch(e=>{
+        console.log(e)
+        res.render('general_error', {error: "classified not found"})
+    })
+})
 app.get('/logout', (req,res)=>{
     if(!req.authenticated){res.redirect('/'); return}
     if(req.userId){
@@ -198,13 +259,21 @@ app.get('/login', (req,res)=>{
 app.get('/list', (req,res)=>{
     db_mannager.getJoinedClassified().then((rows)=>{
         let formatted = OneDToTwoD(rows.rows, 3)
+        console.log(rows.rows.sort((a,b)=>{
+            if(a.status == null){
+                return 1;
+            }else if(b.status == null){
+                return -1;
+            }
+        }))
+
         res.render('list', {classifieds: formatted, auth: req.authenticated})
+    }).catch((e)=>{
+        console.log(e)
+        res.render('general_error', {error:'There was a problem. Please try again later'})
     })
 })
-app.get('/classified/new', (req,res)=>{
-    if(!req.authenticated) {res.redirect('/login')};
-    res.render('create', {auth: req.authenticated})
-})
+
 app.post('/classified', (req,res) => {
     if(!req.authenticated) {res.redirect('/login'); return}
     for(let prop in req.body){
@@ -220,7 +289,7 @@ app.post('/classified', (req,res) => {
             console.log(error);
             return res.render('create', {error: 'Cant move img', auth: req.authenticated});
         }
-        db_mannager.createClassified(req.body.title,req.userId, req.body.description,path, req.body.quantity)
+        db_mannager.createClassified(req.body.title,crypto.randomBytes(10).toString('hex'),req.userId, req.body.description,path, req.body.quantity)
         .then(()=>{
             res.redirect('/list')
         })
@@ -250,7 +319,7 @@ function OneDToTwoD(array,lenght){
     let result = []
     let cont = array.slice(0);
     while(cont[0]) { 
-             result.push(cont.splice(0, lenght)); 
+        result.push(cont.splice(0, lenght)); 
     }
     return result
 };

@@ -1,0 +1,38 @@
+extends layout.pug
+block content
+	.container
+		.row
+		.col-lg-9
+			.card.mt-4
+			img.card-img-top.img-fluid(src=c.picture_path, alt='')
+			.card-body
+				h3.card-title=c.title
+				h4=c.price
+				h5=`Quantity: ${c.quantity}`
+				p.card-text=c.description
+			.card.card-outline-secondary.my-4
+			.card-header
+				| Comments:
+			#comments.card-body
+				if comments
+					each com,idx in comments
+						.cm
+							p=com.body
+							small.text-muted=`Posted by ${com.username} on ${com.comment_date}`
+							hr
+				if auth
+					input#comment.mb-2.form-control(type="text", name="comment")
+					button.btn.btn-success(href='#', onclick="submitComment()") Leave a comment
+					script.
+						function showInput(){
+							$('#comment').show()
+						}
+						function submitComment(){
+							$.ajax({
+								method: "POST",
+								url: "/comment/new",
+								data: {"comment": $('#comment').val(), "entity": "#{c.entity_id}"}
+							}).then((res)=>{
+								location.reload();
+							})
+						}

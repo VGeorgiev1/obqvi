@@ -31,7 +31,9 @@ class Dbmanager{
 	}
 	getUserClassfieds(user_id){
 		return this.client.query(/*sql*/`
-			SELECT * FROM "classifieds" WHERE creator_id = $1
+			SELECT * FROM "classifieds" as cl
+			LEFT JOIN "promotions" as p ON p.classified_entity = cl.entity_id
+			WHERE creator_id = $1
 		`,[user_id])
 	}
 	authenticateUser(username,password, callback){
@@ -53,6 +55,12 @@ class Dbmanager{
 				})
 			}
 		})
+	}
+	getTransaction(transaction_id){
+		return this.client.query(/*sql*/`
+			SELeCT * FROM "promotion_transactions"
+			WHERE transaction_id = $1
+		`, [transaction_id])	
 	}
 	createTransaction(transaction_id, state, sender_id, amount){
 		return this.client.query(/*sql*/`
@@ -111,16 +119,31 @@ class Dbmanager{
 			WHERE secret = $1
 		`, [secret])
 	}
-	createClassified(title,creator,description,picture_path,quantity){
+	getClassified(entity_id){
 		return this.client.query(/*sql*/`
-			INSERT INTO "classifieds" (title,creator_id,description,picture_path,quantity)
-			VALUES($1,$2,$3,$4,$5)
-		`, [title,creator,description,picture_path,quantity])
+			SELECT cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date, c.created_at as comment_date, c.body,c.user_id,u.username,cl.picture_path FROM classifieds cl
+			INNER JOIN "comments" c on c.classified_entity = cl.entity_id
+			INNER JOIN "users" as u ON u.id = c.user_id
+			WHERE entity_id = $1
+		`, [entity_id])
+	}
+	createComment(user_id, classifieds_entity, body){
+		return this.client.query(/*sql*/`
+			INSERT INTO "comments"(user_id,classified_entity, body)
+			VALUES($1,$2,$3)
+		`, [user_id, classifieds_entity, body])
+	}
+	createClassified(title,entity_id,creator,description,picture_path,quantity){
+		return this.client.query(/*sql*/`
+			INSERT INTO "classifieds" (title,creator_id,description,picture_path,quantity, entity_id)
+			VALUES($1,$2,$3,$4,$5, $6)
+		`, [title,creator,description,picture_path,quantity, entity_id])
 	}
 	getJoinedClassified(){
 		return this.client.query(/*sql*/`
-			SELECT c.id as c_id,u.id,c.title,c.description,c.picture_path,c.quantity,u.username,u.email FROM "classifieds" as c
+			SELECT c.entity_id as c_id,u.id,c.title,c.description,c.picture_path,c.quantity,u.username,u.email,p.status FROM "classifieds" as c
 			INNER JOIN "users" u ON u.id = c.creator_id
+			LEFT JOIN "promotions" p ON p.classified_entity = c.entity_id
 		`)
 	}
 	stopSession(user_id){
@@ -144,6 +167,7 @@ class Dbmanager{
 		  );
 		  CREATE TABLE IF NOT EXISTS "classifieds" (
 			"id" SERIAL PRIMARY KEY,
+			"entity_id" text UNIQUE,
 			"creator_id" int NOT NULL REFERENCES "users" ("id"),
 			"title" text,
 			"description" text,
@@ -157,7 +181,7 @@ class Dbmanager{
 		  CREATE TABLE IF NOT EXISTS "comments" (
 			"id" SERIAL PRIMARY KEY,
 			"user_id" int NOT NULL REFERENCES "users" ("id"),
-			"classifieds_id" int NOT NULL REFERENCES "classifieds" ("id"),
+			"classified_entity" text NOT NULL REFERENCES "classifieds" ("entity_id"),
 			"body" text,
 			"created_at" timestamp DEFAULT NOW(),
 			"deleted" timestamp DEFAULT null 
@@ -165,7 +189,7 @@ class Dbmanager{
 		  
 		  CREATE TABLE IF NOT EXISTS "promotion_transactions" (
 			"id" SERIAL PRIMARY KEY,
-			"transaction_id"  TEXT NOT NULL,
+			"transaction_id" TEXT UNIQUE NOT NULL,
 			"state" TEXT NOT NULL,
 			"sender_id" int NOT NULL REFERENCES "users" ("id"),
 			"created_at" timestamp DEFAULT NOW(),
@@ -190,7 +214,7 @@ class Dbmanager{
 		  CREATE TABLE IF NOT EXISTS "promotions"(
 			  "id" SERIAL PRIMARY KEY,
 			  "transaction_id" TEXT REFERENCES  "promotion_transactions"("transaction_id"),
-			  "classified_id" int  REFERENCES "classifieds"("id"),
+			  "classified_entity" text  REFERENCES "classifieds"("entity_id"),
 			  "start_date" timestamp DEFAULT NOW(),
 			  "end_date" timestamp NOT NULL,
 			  "status" TEXT
