@@ -8,7 +8,7 @@ class Dbmanager{
 			user: 'postgres',
 			host: 'localhost',
 			database: 'store',
-			password: 'password',
+			password: 'kon4etobon4eto',
 			port: 5432,
 		});
 		this.client.connect();
@@ -19,21 +19,21 @@ class Dbmanager{
 			INSERT INTO "users"(username,password,email,gender) VALUES($1,$2,$3,$4);
 			`, [username,hash,email,gender]).then((r,err) => {
 				if(callback){
-					callback(e,err)
+					callback(r,err)
 				}
 			})
 	}
 	createPromotion(transaction_id,classified_id,end_date,status){
 		return this.client.query(/*sql*/`
-			INSERT INTO "promotions"(transaction_id,classified_id,end_date, status)
-			VALUES($1,$2,TO_TIMESTAMP($3, 'MM/DD/YYYY'),$4)
+			INSERT INTO "promotions"(transaction_id,classified_entity,end_date, status)
+			VALUES($1,$2,TO_TIMESTAMP($3, 'MM/DD/YYYY'),$4);
 		`,[transaction_id,classified_id,end_date,status])
 	}
 	getUserClassfieds(user_id){
 		return this.client.query(/*sql*/`
-			SELECT * FROM "classifieds" as cl
+			SELECT cl.id, cl.entity_id, cl.title FROM "classifieds" as cl
 			LEFT JOIN "promotions" as p ON p.classified_entity = cl.entity_id
-			WHERE creator_id = $1  
+			WHERE creator_id = $1; 
 		`,[user_id])
 	}
 	authenticateUser(username,password, callback){
@@ -70,8 +70,9 @@ class Dbmanager{
 	prepareTransaction(transaction_id,token, payer_id){
 		return this.client.query(/*sql*/`
 			UPDATE promotion_transactions
-			SET payer_id = $1, token = $2
-			WHERE transaction_id = $3 
+			SET payer_id = $1,
+			token = $2
+			WHERE transaction_id = $3; 
 		`, [payer_id, token, transaction_id])
 	}
 	setTransactionState(transaction_id, state){
@@ -88,15 +89,24 @@ class Dbmanager{
 			WHERE transaction_id = $2
 		`,[state, transaction_id])
 	}
+	createUserPayment(){
+
+	}
 	getPromotions(transaction_id){
 		return this.client.query(/*sql*/`
 			SELECT * FROM "promotions"
-			WHERE transaction_id = $1 AND status = 
+			WHERE transaction_id = $1 AND status = 'awaiting_auth'
 		`,[transaction_id])
 	}
 	findTransaction(transaction_id){
 		return this.client.query(/*sql*/`
 			SELECT * FROM promotion_transactions
+			WHERE transaction_id = $1
+		`,[transaction_id])
+	}
+	findUserPayment(transaction_id){
+		return this.client.query(/*sql*/`
+			SELECT * FROM user_payments
 			WHERE transaction_id = $1
 		`,[transaction_id])
 	}
@@ -109,7 +119,8 @@ class Dbmanager{
 		return this.client.query(/*sql*/`
 			INSERT INTO sessions (user_id, secret) VALUES($1, $2) ON CONFLICT (user_id)
 			DO UPDATE
-			SET logged = true, secret = $2;
+			SET logged = TRUE,
+			secret = $2;
 		`, [user_id, secret]);
 	}
 	logout(secret){
@@ -119,12 +130,18 @@ class Dbmanager{
 			WHERE secret = $1
 		`, [secret])
 	}
+	getJoinedClassified(entity_id){
+		return this.client.query(/*sql*/`
+			SELECT cl.price,cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date, c.created_at as comment_date, c.body,c.user_id,u.username,cl.picture_path FROM classifieds cl
+			LEFT JOIN "comments" c on c.classified_entity = cl.entity_id
+			LEFT JOIN "users" as u ON u.id = c.user_id
+			WHERE cl.entity_id = $1
+		`, [entity_id])
+	}
 	getClassified(entity_id){
 		return this.client.query(/*sql*/`
-			SELECT cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date, c.created_at as comment_date, c.body,c.user_id,u.username,cl.picture_path FROM classifieds cl
-			INNER JOIN "comments" c on c.classified_entity = cl.entity_id
-			INNER JOIN "users" as u ON u.id = c.user_id
-			WHERE entity_id = $1
+			SELECT cl.price,cl.creator_id, cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date,cl.picture_path FROM classifieds cl
+			WHERE cl.entity_id = $1
 		`, [entity_id])
 	}
 	createComment(user_id, classifieds_entity, body){
@@ -133,18 +150,48 @@ class Dbmanager{
 			VALUES($1,$2,$3)
 		`, [user_id, classifieds_entity, body])
 	}
-	createClassified(title,entity_id,creator,description,picture_path,quantity){
+	createClassified(title,entity_id,creator,description,picture_path,price,quantity){
 		return this.client.query(/*sql*/`
-			INSERT INTO "classifieds" (title,creator_id,description,picture_path,quantity, entity_id)
-			VALUES($1,$2,$3,$4,$5, $6)
-		`, [title,creator,description,picture_path,quantity, entity_id])
+			INSERT INTO "classifieds" (title,creator_id,description,picture_path,price,quantity, entity_id)
+			VALUES($1,$2,$3,$4,$5, $6,$7)
+		`, [title,creator,description,picture_path,price,quantity, entity_id])
 	}
-	getJoinedClassified(){
+	getClassfiedPromotion(){
 		return this.client.query(/*sql*/`
 			SELECT c.entity_id as c_id,u.id,c.title,c.description,c.picture_path,c.quantity,u.username,u.email,p.status FROM "classifieds" as c
 			INNER JOIN "users" u ON u.id = c.creator_id
 			LEFT JOIN "promotions" p ON p.classified_entity = c.entity_id
+			WHERE p.status = 'authorized' OR p.status IS NULL;
 		`)
+	}
+	prepareUserPayment(paymentId, token, payerId){
+		return this.client.query(/*sql*/`
+			UPDATE "user_payments"
+			SET token = $2,
+				payer_id = $3
+			WHERE transaction_id = $1
+			RETURNING id
+		`,[paymentId, token, payerId])
+	}
+	setUserTransactionState(transaction_id,state){
+		return this.client.query(/*sql*/`
+			UPDATE "user_transactions"
+			SET state = $2
+			WHERE id = $1
+		`,[transaction_id,state])
+	}
+	createUserTransaction(user_payment_id,sender,recipant,state,amount){
+		return this.client.query(/*sql*/`
+			INSERT INTO "user_transactions"(user_payment_id,sender,recipant,state,amount)
+			VALUES($1,$2,$3,$4,$5)
+		`,[user_payment_id,sender,recipant,state,amount])
+	}
+	createPayment(transaction_id, sender_id, state, amount){
+		return this.client.query(/*sql*/`
+			INSERT INTO "user_payments"(transaction_id,sender_id,state,amount)
+			VALUES($1,$2,$3,$4)
+			RETURNING id
+		`,[transaction_id, sender_id, state, amount])
 	}
 	stopSession(user_id){
 		return this.client.query(/*sql*/`
@@ -173,6 +220,7 @@ class Dbmanager{
 			"description" text,
 			"picture_path" text,
 			"status" text DEFAULT 'open',
+			"price" NUMERIC NOT NULL,
 			"quantity" int,
 			"created_at" date DEFAULT NOW(),
 			"closed_at" date DEFAULT NULL
@@ -202,9 +250,30 @@ class Dbmanager{
 			"sender" int NOT NULL REFERENCES "users" ("id"),
 			"recipant" int NOT NULL REFERENCES "users" ("id"),
 			"approved_at" timestamp DEFAULT NULL,
+			"state" TEXT NOT NULL,
+			"amount" NUMERIC NOT NULL,
+			"user_payment_id" int,
+			"user_payout_id" int,
 			"created_at" timestamp DEFAULT NOW()
 		  );
-		  
+		  CREATE TABLE IF NOT EXISTS "user_payments"(
+			"id" SERIAL PRIMARY KEY,
+			"transaction_id" TEXT UNIQUE NOT NULL,
+			"state" TEXT NOT NULL,
+			"sender_id" int NOT NULL REFERENCES "users" ("id"),
+			"created_at" timestamp DEFAULT NOW(),
+			"payer_id" TEXT,
+			"token" TEXT,
+			"amount" NUMERIC NOT NULL
+		  );
+		  CREATE TABLE IF NOT EXISTS "user_payouts"(
+			"id" SERIAL PRIMARY KEY,
+			"transaction_id" TEXT UNIQUE NOT NULL,
+			"state" TEXT NOT NULL,
+			"recipiant" int NOT NULL REFERENCES "users" ("id"),
+			"created_at" timestamp DEFAULT NOW(),
+			"amount" NUMERIC NOT NULL
+		  );
 		  CREATE TABLE IF NOT EXISTS "accounts"(
 			"id" SERIAL PRIMARY KEY,
 			"user_id" int REFERENCES "users" ("id"),

@@ -3,12 +3,14 @@ const bodyParser = require('body-parser');
 const app = express();
 const port = 3000;
 const DbManager= require('./DbManager');
+const PaypalManager = require('./paypal');
 const db_mannager = new DbManager();
+const paypal_manager = new PaypalManager('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET)
 const fileUpload = require('express-fileupload');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
-const paypal = require('paypal-rest-sdk');
 const bgn2dollarRate = 1.74;
+
 app.use(express.static('public'));
 app.set('view engine', 'pug');
 app.use(cookieParser());
@@ -16,13 +18,6 @@ app.use(cookieParser());
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(bodyParser.json())
 app.use(fileUpload());
-
-paypal.configure({
-    'mode': 'sandbox', //sandbox or live 
-    'client_id': process.env.PAYPAL_KEY, // please provide your client id here 
-    'client_secret': process.env.PAYPAL_SECRET // provide your client secret here 
-});
-
 const loginware = function (req, res, next) {
     if(req.cookies.sessionToken){
         db_mannager.findSession(req.cookies.sessionToken).then((ses,err)=>{
@@ -30,8 +25,8 @@ const loginware = function (req, res, next) {
                 req.authenticated = false
             }
             if(ses){
-                req.authenticated = true
                 if(ses.rows[0]){
+                    req.authenticated = true
                     req.userId = ses.rows[0].user_id
                 }
                 next()
@@ -48,8 +43,10 @@ app.get('/promo',(req,res) => {
     if(!req.authenticated){res.redirect('/login'); return}
     db_mannager.getUserClassfieds(req.userId)
     .then((rows)=>{
+        console.log(rows.rows)
         res.render('promo', {classifieds: rows.rows, auth: req.authenticated})
-    }).catch(()=>{
+    }).catch((e)=>{
+        console.log(e)
         res.render('general_error', {error: "There was a problemm please try again later."})
     })
 })
@@ -59,6 +56,7 @@ app.get('/promo/success', (req,res)=>{
         db_mannager.getPromotions(req.query.paymentId)
         .then((rows)=>{
             if(rows.rows){
+                console.log(rows.rows)
                 res.render('promo_success', {classifieds: rows.rows, auth: req.authenticated})
                 return;
             }
@@ -68,68 +66,91 @@ app.get('/promo/success', (req,res)=>{
         res.render('general_error', {error: "There was a problem preparing your transactions!"})
     })
 })
+app.get('/buy/success', (req,res)=>{
+    db_mannager.prepareUserPayment(req.query.paymentId, req.query.token, req.query.PayerID)
+    .then(r=>{
+        console.log(r.rows[0].id)
+        db_mannager.setUserTransactionState(r.rows[0].id, "buyer_approved").then(()=>{
+            res.render('buy_success');
+        }).catch(e=>{
+            console.log(e)
+        })
+    }).catch((e)=>{
+        console.log(e)
+        res.render('general_error', {error: "There was a problem preparing your transactions!"})
+    })
+})
 app.get('/', (req,res)=>{
     res.redirect('/list')
     return;
 })
 app.post('/confrim' , (req,res)=>{
+    console.log(req.body)
     switch(req.body.event_type){
         case "PAYMENTS.PAYMENT.CREATED":
             db_mannager.setTransactionState(req.body.resource.id, req.body.resource.state)
             .then(()=>{
                 console.log(req.body)
                 if(req.body.resource.state = 'created'){
-                    db_mannager.findTransaction(req.body.resource.id).then((r)=>{    
-                        if(r.rows && r.rows[0]){
-                            let payer_id = r.rows[0].payer_id
-                            let transaction_id = r.rows[0].transaction_id
+                    if(req.body.resource.intent == 'order'){
+                        db_mannager.findUserPayment(req.body.resource.id).then((r)=>{    
+                            if(r.rows && r.rows[0]){
+                                let payer_id = r.rows[0].payer_id
+                                let transaction_id = r.rows[0].transaction_id
+                                console.log(transaction_id)
+                                console.log(req.body.resource.id)
                                 if(transaction_id == req.body.resource.id){
-                                var execute_payment_json = {
-                                    "payer_id": payer_id,
-                                    "transactions": [{
-                                        "amount": {
-                                            "currency": "USD",
-                                            "total": req.body.resource.transactions[0].amount.total
-                                        }
-                                    }]
-                                };
-                                paypal.payment.execute(transaction_id, execute_payment_json, function (error, payment) {
-                                    if (error) {
-                                        console.log(error.response);
-                                        throw error;
-                                    } else {
-                                        console.log(payment);
-                                    }
-                                });
+                                    console.log('equal')
+                                    paypal_manager.orderAuthorize(transaction_id, req.body.resource.transactions[0].amount.total)
+                                    .then(transaction=>{
+                                        console.log(transaction)
+                                        console.log('her?')
+                                    })
+                                    .catch((e)=>{
+                                        console.log(e)
+                                        console.log('her')
+                                        //todo add to the history that the transaction failed
+                                    })
+                                }
                             }
-                        }
-                    });
+                        });
+                    }else{
+                        db_mannager.findTransaction(req.body.resource.id).then((r)=>{    
+                            if(r.rows && r.rows[0]){
+                                let payer_id = r.rows[0].payer_id
+                                let transaction_id = r.rows[0].transaction_id
+                                if(transaction_id == req.body.resource.id){
+                                    paypal_manager.execute(transaction_id, payer_id, req.body.resource.transactions[0].amount.total)
+                                    .then(trasaction=>{
+                                        console.log(transaction)
+                                    })
+                                    .catch((e)=>{
+                                        //todo add to the history that the transaction failed
+                                    })
+                                }
+                            }
+                        });
+                    }
                 }
             });
             break;
         case "PAYMENT.AUTHORIZATION.CREATED":
             console.log(req.body)
-            let transaction_id = req.body.resource.parent_payment
-            paypal.authorization.get(req.body.resource.id, (err, auth)=>{
-                if(err){
-                    console.log(err)
-                }else{
-                    if(auth.state != 'captured'){
-                        paypal.authorization.capture(req.body.resource.id, {amount: {total: req.body.resource.amount.total, currency: req.body.resource.amount.currency}}, function(error,auth){
-                            if(error){
-                                console.log(error)
-                            }else{
-                                db_mannager.setTransactionState(transaction_id, "completed").then((r)=>{
-                                    console.log('transaction updated')
-                                    db_mannager.setPromotionStatus(transaction_id, "authorized").then((r)=>{
-                                        console.log('prmotions updated')
-                                    })
-                                })
-                            }
-                        })
-                    }
-                }
-            })
+            // let transaction_id = req.body.resource.parent_payment
+            // paypal_manager.getPaymentAuthoriztaion(req.body.resource.id)
+            // .then(auth=>{
+            //     if(auth.state != 'captured'){
+            //         paypal_manager.capturePayment(req.body.resource.id,req.body.resource.amount.total)
+            //         .then(auth=>{
+            //             db_mannager.setTransactionState(transaction_id, "completed").then((r)=>{
+            //                 console.log('transaction updated')
+            //                 db_mannager.setPromotionStatus(transaction_id, "authorized").then((r)=>{
+            //                     console.log('prmotions updated')
+            //                 })
+            //             })
+            //         })
+            //     }
+            // })
             break;
     }
 })
@@ -146,15 +167,14 @@ app.post('/promo', (req,res)=>{
         res.send(calculation)
         return;
     }
-    console.log(classifieds_keys)
     var payment = {
         "intent": "authorize",
         "payer": {
             "payment_method": "paypal"
         },
         "redirect_urls": {
-            "return_url": "https://80fb30e0.ngrok.io/promo/success",
-            "cancel_url": "https://80fb30e0.ngrok.io/promo/error"
+            "return_url": "https://50a4d145.ngrok.io/promo/success",
+            "cancel_url": "https://50a4d145.ngrok.io/promo/error"
         },
         "transactions": [{
             "amount": {
@@ -164,18 +184,18 @@ app.post('/promo', (req,res)=>{
             "description": "Classified promotions for: " + Object.keys(req.body).filter(k=>k!='date').join(', ')
         }]
     }
-    createPay( payment ) 
+    paypal_manager.createPay( payment )
        .then( ( transaction ) => {
             db_mannager.createTransaction(transaction.id, transaction.state, req.userId, Number(transaction.transactions[0].amount.total))
             .then((r)=>{
                 console.log(r)
                 let promises = []
                 db_mannager.getTransaction(transaction.id).then(t=>{
-                    console.log(t)
                     for(let key of classifieds_keys){
-                        console.log(transaction.id)
                         if(req.body[key].lenght != 1){
-                            promises.push(db_mannager.createPromotion(transaction.id, Number(key), req.body.date, "awaiting_auth"))
+                            promises.push(db_mannager.createPromotion(transaction.id, key, req.body.date, "awaiting_auth").catch(e=>{
+                                console.log(e)
+                            }))
                         }
                     }
                     Promise.all(promises).then(()=>{
@@ -211,9 +231,6 @@ app.post('/register', (req,res)=>{
         }) 
     }
 })
-app.get('/classified/my', (req,res)=>{
-    
-})
 app.post('/comment/new', (req,res)=>{
     if(!req.authenticated) {res.send({error: "No authentication"})}
     db_mannager.createComment(req.userId, req.body.entity, req.body.comment).then((r)=>{
@@ -225,18 +242,81 @@ app.post('/comment/new', (req,res)=>{
 })
 app.get('/classified/new', (req,res)=>{
     if(!req.authenticated) {res.redirect('/login')};
-    console.log('tf')
     res.render('create', {auth: req.authenticated})
 })
-app.get('/classified/:id', (req,res)=>{
+app.post('/buy/:id', (req,res)=>{
+    if(!req.authenticated) {res.redirect('/login')};
+    console.log(req.body)
+    console.log(req.params.id)
+    let quantity = Number(req.body.quantity)
+    if(quantity <= 0){
+        res.send({error: "Invalid quantity"})
+        return;
+    }
     db_mannager.getClassified(req.params.id)
+    .then((r)=>{
+        let classified = r.rows[0]
+
+        if(quantity > classified.quantity){
+            res.send({error: "Invalid quantity"})
+            return;
+        }
+        var payment = {
+            "intent": "order",
+            "payer": {
+                "payment_method": "paypal"
+            },
+            "redirect_urls": {
+                "return_url": "https://50a4d145.ngrok.io/buy/success",
+                "cancel_url": "https://50a4d145.ngrok.io/buy/error"
+            },
+            "transactions": [{
+                "item_list": {
+                    "items": [{
+                        "name": "item",
+                        "sku": "item",
+                        "price": classified.price,
+                        "currency": "USD",
+                        "quantity": quantity
+                    }]
+                },
+                "amount": {
+                    "currency": "USD",
+                    "total": classified.price * quantity
+                },
+                "description": "Order for " + classified.title
+            }]
+        };
+        paypal_manager.createPay( payment ) 
+            .then( ( transaction ) => {
+                db_mannager.createPayment(transaction.id,req.userId, transaction.state, Number(transaction.transactions[0].amount.total))
+                    .then((r)=>{
+                        db_mannager.createUserTransaction(r.rows[0].id, req.userId, classified.creator_id, "awaiting_seller_consent", Number(transaction.transactions[0].amount.total))
+                        .then((r)=>{
+                            res.send(transaction.links.filter(l=>l.method == 'REDIRECT')[0].href)
+                        })
+                    }).catch((e)=>{
+                        console.log(e)
+                        res.render('general_error', {error: "There was a problem with craeting yout transaction. Please try again"});
+                    })
+                })
+                .catch( ( err ) => { 
+                    console.log( err.response ); 
+                    res.render('general_error', {error: "There was a prolbem with creating your payment. Please try again."});
+                });
+    })
+
+
+})
+app.get('/classified/:id', (req,res)=>{
+    db_mannager.getJoinedClassified(req.params.id)
     .then((r)=>{
         if(r.rowCount == 0){
             res.render('general_error', {error: 'Classified not found!'})
         }else{
             let comments = []
             let classified = {}
-            res.render('classified', {c:r.rows[0],comments: r.rows, auth: req.authenticated})
+            res.render('classified', {c:r.rows[0],comments: r.rows.filter(r=>r.comment_date != null), auth: req.authenticated})
         }
     }).catch(e=>{
         console.log(e)
@@ -257,12 +337,12 @@ app.get('/login', (req,res)=>{
     res.render('login', {auth: req.authenticated})
 })
 app.get('/list', (req,res)=>{
-    db_mannager.getJoinedClassified().then((rows)=>{
+    db_mannager.getClassfiedPromotion().then((rows)=>{
         let formatted = OneDToTwoD(rows.rows, 3)
         console.log(rows.rows.sort((a,b)=>{
-            if(a.status == null){
+            if(a.status == 'authorized'){
                 return 1;
-            }else if(b.status == null){
+            }else if(b.status == 'authorized'){
                 return -1;
             }
         }))
@@ -289,7 +369,8 @@ app.post('/classified', (req,res) => {
             console.log(error);
             return res.render('create', {error: 'Cant move img', auth: req.authenticated});
         }
-        db_mannager.createClassified(req.body.title,crypto.randomBytes(10).toString('hex'),req.userId, req.body.description,path, req.body.quantity)
+        
+        db_mannager.createClassified(req.body.title,crypto.randomBytes(10).toString('hex'),req.userId, req.body.description,path,req.body.price, req.body.quantity)
         .then(()=>{
             res.redirect('/list')
         })
@@ -323,18 +404,7 @@ function OneDToTwoD(array,lenght){
     }
     return result
 };
-var createPay = ( payment ) => {
-    return new Promise( ( resolve , reject ) => {
-        paypal.payment.create( payment , function( err , payment ) {
-         if ( err ) {
-             reject(err); 
-         }
-        else {
-            resolve(payment); 
-        }
-        }); 
-    });
-}						
+			
 function calcPromotion(date, classifieds){
     const days = Math.ceil((new Date(date)-new Date())/(1000*60*60*24));
 

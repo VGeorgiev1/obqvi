@@ -7,9 +7,17 @@ block content
 			img.card-img-top.img-fluid(src=c.picture_path, alt='')
 			.card-body
 				h3.card-title=c.title
-				h4=c.price
+				h5=`Unit price: ${c.price}`
 				h5=`Quantity: ${c.quantity}`
 				p.card-text=c.description
+				button.btn.btn-outline-success.btn-rounded.btn-block.waves-effect.z-depth-0(type="button", onclick="buy()") Buy
+				label(for="price-min") Quantiy:
+				span#quant.font-weight-bold.indigo-text(name="quantity") 0
+				.d-flex.justify-content-center.my-4
+					span.font-weight-bold.indigo-text.mr-2 0
+					input#quantity.custom-range(type="range" name="quantity" value="0" min="0" max=c.quantity)
+					span.font-weight-bold.indigo-text.mr-2=c.quantity
+				#errmsg.alert.alert-danger(role='alert', style="display:none")
 			.card.card-outline-secondary.my-4
 			.card-header
 				| Comments:
@@ -34,5 +42,23 @@ block content
 								data: {"comment": $('#comment').val(), "entity": "#{c.entity_id}"}
 							}).then((res)=>{
 								location.reload();
+							})
+						}
+						$('#quantity').change((e)=>{
+							$('#quant').html(`${$('#quantity').val()}`)
+						})
+						function buy(){
+							$('#errmsg').hide()
+							$.ajax({
+								method: "POST",
+								url: "/buy/#{c.entity_id}",
+								data: {"quantity":$('#quantity').val()}
+							}).then((res)=>{
+								if(res.error){
+									$('#errmsg').html(res.error)
+									$('#errmsg').show()
+								}else{
+									location.href = res
+								}
 							})
 						}

@@ -6,7 +6,7 @@ block content
 			.list-group
 				each c in classifieds
 					.list-group-item=c.title
-						input#form-check-input(name=c.id type="checkbox" style="float:right")
+						input#form-check-input(name=c.entity_id type="checkbox" style="float:right")
 						
 			label(for="datepicker") Period:
 			input#datepicker.md-form(type="text", name="date" style="margin-top: 5%")

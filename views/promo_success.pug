@@ -2,3 +2,6 @@ extends layout.pug
 block content
 	.container
 		h1="Congratulations! You had promoted the following classifieds: "
+			ul.list-group
+				each c in classifieds
+					.list-group-item=c.title
