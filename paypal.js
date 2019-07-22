@@ -20,6 +20,35 @@ class PaypalManager{
             }); 
         });
     }
+    createWebhooks(url, events){
+        var create_webhook_json = {
+            "url": url,
+            "event_types": events
+        };
+        return new Promise( ( resolve , reject ) => {
+            paypal.notification.webhook.list(async (error, webhooks) => {
+                if (error) {
+                    throw error;
+                } else {
+                    let cb = ()=>{
+                        paypal.notification.webhook.create(create_webhook_json, function (error, webhook) {
+                                if (error) {
+                                    reject(error); 
+                                } else {
+                                    resolve(payment); 
+                                }
+                        });
+                    }
+                    if(webhooks.webhooks[0]){
+                        paypal.notification.webhook.del(webhooks.webhooks[0].id, cb)
+                    }else{
+                        cb()
+                    }
+                }
+            });
+            
+        })
+    }
     getOrder(transaction_id){
         return new Promise( ( resolve , reject ) => {
             paypal.order.get(transaction_id, function (error, order) {
@@ -46,7 +75,7 @@ class PaypalManager{
             paypal.payment.execute(transaction_id, execute_payment_json, function (error, payment) {
                 if (error) {
                     console.log(error.response);
-                    reject(err); 
+                    reject(error); 
                 } else {
                     resolve(payment); 
                 }
@@ -101,6 +130,18 @@ class PaypalManager{
             })
         })
     }
+    getPayment(transaction_id){
+        return new Promise( ( resolve , reject ) => {
+            paypal.payment.get(transaction_id, (error,auth)=>{
+                if (error) {
+                    console.log(error.response);
+                    reject(error); 
+                } else {
+                    resolve(auth); 
+                }
+            })
+        })
+    }
     getOrderAuthorization(transaction_id){
         return new Promise( ( resolve , reject ) => {
             console.log(transaction_id)
@@ -122,8 +163,8 @@ var payment = {
         "payment_method": "paypal"
     },
     "redirect_urls": {
-        "return_url": "https://50a4d145.ngrok.io/buy/success",
-        "cancel_url": "https://50a4d145.ngrok.io/buy/error"
+        "return_url": "https://408be49f.ngrok.io/buy/success",
+        "cancel_url": "https://408be49f.ngrok.io/buy/error"
     },
     "transactions": [{
         "item_list": {
@@ -142,6 +183,9 @@ var payment = {
         "description": "Order for "
     }]
 };
-
-
 module.exports = PaypalManager;
+
+//create payment
+//get payment t.transactions[0].related_resources[0].orde.id
+//authorize order
+//capture order

@@ -1,0 +1,48 @@
+extends layout.pug
+block content
+	.container
+		h1 You have pending shipments for the following classifieds:
+		table.table
+			thead
+				tr
+					th(scope="col") Classified
+					th(scope="col") Transaction Id
+					th(scope="col") Quantity
+					th(scope="col") Total amount
+					th(scope="col") Ship:
+			tbody
+				each c in classifieds
+					tr
+						td
+							a(href=`/classified/${c.entity_id}`)=c.title
+						td=c.transaction_id
+						td=c.quantity
+						td=c.amount
+						td
+							button.shipment.btn.btn-success(type="button", value=c.transaction_id) Ship
+			#errmsg.alert.alert-danger(role='alert', style="display:none")
+			#success.alert.alert-primary(role='alert', style="display:none")
+
+	script.
+		$('.shipment').each((key,btn)=>{
+			$(btn).click(function (e){
+				console.log('here')
+				$('#errmsg').hide()
+				$('#success').hide()
+				$.ajax({
+					method: "POST",
+					url: "/ship",
+					data: {payment_id: $(this).val()}
+				})
+				.then((res)=>{
+					if(res.error){
+						$('#errmsg').html(res.error)
+						$('#errmsg').show()
+					}else{
+						$('#success').html(res)
+						$('#success').show()
+						$(btn).remove()
+					}
+				})
+			})
+		})

@@ -4,7 +4,7 @@ block content
 		.row
 		.col-lg-9
 			.card.mt-4
-			img.card-img-top.img-fluid(src=c.picture_path, alt='')
+			img.card-img-top.img-fluid(src='data:image/jpg;base64,'+ c.picture, alt='')
 			.card-body
 				h3.card-title=c.title
 				h5=`Unit price: ${c.price}`
