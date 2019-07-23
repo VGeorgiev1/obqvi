@@ -40,9 +40,9 @@ class PaypalManager{
                         });
                     }
                     if(webhooks.webhooks[0]){
-                        paypal.notification.webhook.del(webhooks.webhooks[0].id, cb)
+                        paypal.notification.webhook.del(webhooks.webhooks[0].id, cb);
                     }else{
-                        cb()
+                        cb();
                     }
                 }
             });
@@ -54,9 +54,9 @@ class PaypalManager{
             paypal.order.get(transaction_id, function (error, order) {
                 if (error) {
                     console.log(error);
-                    reject(error)
+                    reject(error);
                 } else {
-                    resolve(order)
+                    resolve(order);
                 }
             });
         })
@@ -111,9 +111,9 @@ class PaypalManager{
         return new Promise( ( resolve , reject ) => {
             paypal.order.authorize(transaction_id, {"amount": {total: amount, currency: "USD"}}, function (error, auth) {
                 if (error) {
-                    reject(error)
+                    reject(error);
                 } else {
-                    resolve(auth)
+                    resolve(auth);
                 }
             });
         })
@@ -144,7 +144,6 @@ class PaypalManager{
     }
     getOrderAuthorization(transaction_id){
         return new Promise( ( resolve , reject ) => {
-            console.log(transaction_id)
             paypal.order.get(transaction_id, (err, auth)=>{
                 if (err) {
                     console.log(err.response);
@@ -156,33 +155,6 @@ class PaypalManager{
         })
     }
 }
-let manager = new PaypalManager('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET)
-var payment = {
-    "intent": "order",
-    "payer": {
-        "payment_method": "paypal"
-    },
-    "redirect_urls": {
-        "return_url": "https://408be49f.ngrok.io/buy/success",
-        "cancel_url": "https://408be49f.ngrok.io/buy/error"
-    },
-    "transactions": [{
-        "item_list": {
-            "items": [{
-                "name": "item",
-                "sku": "item",
-                "price": "5",
-                "currency": "USD",
-                "quantity": "1"
-            }]
-        },
-        "amount": {
-            "currency": "USD",
-            "total": "5"
-        },
-        "description": "Order for "
-    }]
-};
 module.exports = PaypalManager;
 
 //create payment

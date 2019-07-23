@@ -4,19 +4,22 @@ block content
 		.row
 		.col-lg-9
 			.card.mt-4
-			img.card-img-top.img-fluid(src='data:image/jpg;base64,'+ c.picture, alt='')
+			if c.picture
+				img.card-img-top.img-fluid(src='data:image/jpg;base64,'+ c.picture, alt='')
 			.card-body
 				h3.card-title=c.title
-				h5=`Unit price: ${c.price}`
-				h5=`Quantity: ${c.quantity}`
+				if c.price
+					h5=`Unit price: ${c.price}`
+					h5=`Quantity: ${c.quantity}`
 				p.card-text=c.description
 				button.btn.btn-outline-success.btn-rounded.btn-block.waves-effect.z-depth-0(type="button", onclick="buy()") Buy
-				label(for="price-min") Quantiy:
-				span#quant.font-weight-bold.indigo-text(name="quantity") 0
-				.d-flex.justify-content-center.my-4
-					span.font-weight-bold.indigo-text.mr-2 0
-					input#quantity.custom-range(type="range" name="quantity" value="0" min="0" max=c.quantity)
-					span.font-weight-bold.indigo-text.mr-2=c.quantity
+				if c.quantity
+					label(for="price-min") Quantiy:
+					span#quant.font-weight-bold.indigo-text(name="quantity") 0
+					.d-flex.justify-content-center.my-4
+						span.font-weight-bold.indigo-text.mr-2 0
+						input#quantity.custom-range(type="range" name="quantity" value="0" min="0" max=c.quantity)
+						span.font-weight-bold.indigo-text.mr-2=c.quantity
 				#errmsg.alert.alert-danger(role='alert', style="display:none")
 			.card.card-outline-secondary.my-4
 			.card-header
