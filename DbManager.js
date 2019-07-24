@@ -32,6 +32,12 @@ class Dbmanager{
 			WHERE creator_id = $1 AND p.status IS NULL; 
 		`,[user_id]);
 	}
+	getUser(user_id){
+		return this.client.query(/*sql*/`
+			SELECT * FROM "users" 
+			WHERE id = $1; 
+		`,[user_id]);
+	}
 	getShipments(user_id){
 		return this.client.query(/*sql*/`
 			SELECT c.title,c.entity_id ,up.transaction_id, up.quantity, up.amount FROM "user_transactions" as ut
@@ -123,6 +129,12 @@ class Dbmanager{
 			SET logged = TRUE,
 			secret = $2;
 		`, [user_id, secret]);
+	}
+	getUserByAPI(api_key){
+		return this.client.query(/*sql*/`
+			SELECT id FROM "users" 
+			WHERE api_key = $1; 
+		`,[api_key]);
 	}
 	logout(secret){
 		return this.client(/*sql*/`

@@ -1,7 +1,7 @@
 
 class RPCValidator{
-    constructor(){
-        this.errorCodes= [
+    constructor(methods, dbManager){
+        this.errorCodes = [
             {error:{message: "Parse error!", code: -32700}, http_status: 500},
             {error:{message: "Invalid Request", code: -32600}, http_status: 400},
             {error:{message: "Method not found!", code: -32601}, http_status: 404},
@@ -9,29 +9,20 @@ class RPCValidator{
             {error:{message: "Internal error!", code: -32603}, http_status: 500},
             {message: "Valid", http_status: 200}
         ]
-        this.createClassified = {
-            "tittle" : {type:"string", required: true},
-            "creator_id": {type:"number", required: true},
-            "description": {type:"string", required: true},
-            "quantity": {type: "number"},
-            "price": {type:'number'},
-            "picture": {type: Buffer}
-        }
-        this.promoteClassified = {
-            "date" : {type: "string", required: true},
-            "userId": {type: 'number', required: true},
-            "classifieds": {type: Array, required: true}
-        }
-        this.calcPromotion = {
-            "date" : {type: "string", required: true},
-            "classifieds": {type: "number", required: true}
-        }
+        this.methods = methods
+        this.dbManager = dbManager
     }
 
-    validateJSON(obj){
+    async validateJSON(obj){
         try{
             JSON.stringify(obj);
-            if(!obj.jsonrpc || obj.jsonrpc != '2.0' || !obj.method || !this[obj.method] || !obj.params || !obj.id){
+            if(!obj.jsonrpc ||
+                obj.jsonrpc != '2.0' ||
+                !obj.method ||
+                !this.methods[obj.method] ||
+                !obj.params ||
+                !obj.params.api_key ||
+                !obj.id){
                 return this.errorCodes[1];
             }else{
                 return this.errorCodes[5];
@@ -40,17 +31,30 @@ class RPCValidator{
             return this.errorCodes[0];
         }
     }
-    validateParameters(obj, strictArgs){
-        if(this[obj.method]){
-            if(strictArgs && (Object.keys(this[obj.method]).length != Object.keys(obj.params).length)){
+    async validateApiKey(api_key){
+        try{
+            let rows = (await this.dbManager.getUserByAPI(api_key)).rows;
+            if(!rows[0] || !rows[0].id){
+                return this.errorCodes[1];
+            }
+            return rows[0].id
+        }catch(e){
+            console.log(e)
+            return this.errorCodes[4]
+        }
+    }
+    validateParameters(obj){
+        try{
+            let method_params = this.methods[obj.method].params
+            if(this.methods[obj.method].strictArgs && (Object.keys(method_params).length != Object.keys(obj.params).length)){
                 return this.errorCodes[0];
             }
-            let required = Object.keys(this[obj.method]).filter(k=>this[obj.method][k].required);
+            let required = Object.keys(method_params).filter(k=>method_params[k].required);
             for(let prop in obj.params){
-                if(!this[obj.method][prop]) {
+                if(!method_params[prop]) {
                     return this.errorCodes[3]
                 }
-                let type = this[obj.method][prop].type;
+                let type = method_params[prop].type;
                 if(typeof obj.params[prop] == 'object' && type instanceof Object){
                     if(!(obj.params[prop] instanceof type)){
                         return this.errorCodes[3];
@@ -60,7 +64,7 @@ class RPCValidator{
                         return this.errorCodes[3];
                     }
                 }
-                if(this[obj.method][prop].required){
+                if(method_params[prop].required){
                     required.splice(required.indexOf(prop), 1)
                 }
             }
@@ -69,8 +73,10 @@ class RPCValidator{
             }else{
                 return this.errorCodes[3];
             }
-        }else{
-            return this.errorCodes[2];
+        }catch(e){
+            console.log(e)
+
+            return this.errorCodes[4]
         }
     }
 }

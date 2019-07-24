@@ -169,6 +169,12 @@ app.post('/promo', loginware, async (req, res) => {
 app.post('/calculate', loginware, (req, res) => {
 	res.send(calcPromotion(req.body.date, req.body.classifieds));
 });
+app.get('/profile', loginware, (req,res)=>{
+	dbManager.getUser(req.userId).then((r)=>{
+		console.log(r.rows)
+		res.render('profile', {profile: r.rows[0], auth: req.authenticated})
+	})
+})
 app.get('/register', (req, res) => {
 	if (req.authenticated) { res.redirect('/list') }
 	res.render('register', { auth: req.authenticated });
