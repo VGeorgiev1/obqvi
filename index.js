@@ -1,401 +1,338 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const app = express();
-const port = 3000;
-
+const express = require('express');;
+const bodyParser = require('body-parser')
 const fileUpload = require('express-fileupload');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
-const host = 'https://e70f28bd.ngrok.io';
+const host = 'https://e70f28bd.ngrok.io'
+const assert = require('./assert');
 
-const Promotion = require('./Promotion');
+const PROMOTION = require('./Promotion');
 const RPC = require('./RPCService');
+const DB = require('./db');
+const PAYPAL = require('./Paypal');
 
-const DbManager = require('./DbManager');
-const PaypalManager = require('./paypal');
-const dbManager = new DbManager();
-const paypalManager = new PaypalManager('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET);
-const promotionManager = new Promotion(paypalManager, dbManager, host);
-const rpc = new RPC(dbManager, promotionManager);
+const db = new DB();
+const paypal = new PAYPAL('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET);
+const promotion = new PROMOTION(paypal, db, host);
+const rpc = new RPC(db, promotion);
+
+const app = express();
+const port = 3000;
 
 app.use(express.static('public'));
 app.set('view engine', 'pug');
 app.use(cookieParser());
-
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(fileUpload());
-const loginware = async (req, res, next) => {
-	if (req.cookies.sessionToken) {
-		try{
-			let ses = await dbManager.findSession(req.cookies.sessionToken);
-
-			if (ses) {
-				if (ses.rows[0]) {
-					req.authenticated = true;
-					req.userId = ses.rows[0].user_id;
-				}
-				next();
-			} else {
-				res.redirect('/login');
-				return;
-			}
-		}catch(e){
-			console.log(e);
-			res.authenticated = false;
-			res.redirect('/login');
-		}
-	} else {
-		res.redirect('/login');
-		return;
+const wrapper = fn => async({req,res}) => {
+	try{
+		await fn(req,res)
+	}catch(e){
+		console.log(e.message)
+		res.render('general_error', { error: 'Something went wrong please try again later' })
 	}
 }
-app.get('/promo', loginware, async(req, res) => {
-	try{
-		let rows = await dbManager.getUserClassfieds(req.userId);
-		res.render('promo', { classifieds: rows.rows, auth: req.authenticated });
-	}catch(e){
-		res.render('general_error', { error: 'There was a problemm please try again later.' });
+const loginware = async (req, res, next) => {
+	if (!req.cookies.sessionToken) {
+		res.redirect('/login')
+		return
 	}
-});
-app.get('/shipments/my', loginware, async (req, res) => {
-	try{
-		let rows = await dbManager.getShipments(req.userId);
-		res.render('shipments', { classifieds: rows.rows, auth: req.authenticated });
-	}catch(e){
-		console.log(e)
-		res.render('general_error', { error: 'There was a problemm please try again later.' });
-	}
-});
-app.get('/promo/success', loginware, async(req, res) => {
-	try{
-	await dbManager.prepareTransaction(req.query.paymentId, req.query.token, req.query.PayerID);
-		let rows = await dbManager.getPromotions(req.query.paymentId);
-		if (rows.rows) {
-			res.render('promo_success', { classifieds: rows.rows, auth: req.authenticated });
-			return;
+	try {
+		const ses = await db.getSession(req.cookies.sessionToken)
+		if (!ses) {
+			res.redirect('/login')
+			return
 		}
-		res.render('general_error', { error: 'There was a problem preparing your transactions!' });
-	}catch(e){
-		res.render('general_error', { error: 'There was a problem preparing your transactions!' });
+		req.authenticated = true
+		req.userId = ses.userId
+		next()
+
+	} catch (e) {
+		console.log(e)
+		res.render('general_error', { error: 'There was a problemm please try again later.' })
 	}
-});
-app.get('/buy/success', loginware, async(req, res) => {
-	try{
-		let r = await dbManager.prepareUserPayment(req.query.paymentId, req.query.token, req.query.PayerID);
-		await dbManager.setUserTransactionState(r.rows[0].id, 'buyer_approved');
-		res.render('buy_success', { auth: req.authenticated });
-	}catch(e){
-		console.log(e);
-		res.render('general_error', { error: 'There was a problem preparing your transactions!' });
+}
+
+
+
+app.get('/promo', loginware, wrapper(async (req, res) => {
+	const rows = await db.getUserClassfieds(req.userId)
+	if(!rows){
+		res.render('general_error', { error: 'Classifieds not found!' })
 	}
-});
-app.get('/', loginware, (req, res) => {
-	res.redirect('/list');
-});
-app.post('/rpc', async (req, res) => {
-	res.setHeader('Content-Type', 'application/json-rpc');
+	res.render('promo', { classifieds: rows.rows, auth: req.authenticated })
+}))
+
+app.get('/shipments/my', loginware, wrapper(async (req, res) => {
+	const rows =  await db.getShipments(req.userId)
+	if(!rows){
+		res.render('general_error', { error: 'Classifieds not found!' })
+	}
+	res.render('shipments', { classifieds: rows.rows, auth: req.authenticated })
+}))
+
+app.get('/promo/success', loginware, wrapper(async (req, res) => {
+	await db.prepareTransaction(req.query)
+	const promotions = await db.getPromotions(req.query.paymentId)
+	if (!promotions) {
+		res.render('promo_success', { classifieds: rows.rows, auth: req.authenticated })
+		return
+	}
+	res.render('general_error', { error: 'There was a problem preparing your transactions!' })
+}))
+
+app.get('/buy/success', loginware, wrapper(async (req, res) => {
+	db.tx(async() => {
+		const r = await db.prepareUserPayment(req.query)
+		await db.setUserTransactionState({ id: r.id, state: 'buyer_approved' })
+		res.render('buy_success', { auth: req.authenticated })
+	})
+}))
+
+app.get('/', wrapper((req, res) => {
+	res.redirect('/list')
+}))
+
+app.post('/rpc', wrapper(async (req, res) => {
+	res.setHeader('Content-Type', 'application/json-rpc')
 	if (req.headers['content-type'] != 'application/json' && req.headers['content-type'] != 'application/json-rpc') {
 		console.log('here?')
-		res.send({ "jsonrpc": "2.0", "error": { "code": -32700, "message": "Invalid Request" }, "id": null });
-	}else{
-		try{
-			let result = await rpc.execute(req.body);
-			res.send(result);
-		}catch(e){
-			console.log(e);
-		}
+		res.send({ jsonrpc: '2.0', error: { code: -32700, message: 'Invalid Request' }, id: null })
+	} else {
+		const result = await rpc.execute(req.body)
+		res.send(result)
 	}
-});
-app.post('/confrim', loginware, async (req, res) => {
-	try{
-		switch (req.body.event_type) {
-			case 'PAYMENTS.PAYMENT.CREATED':
-				if (req.body.resource.state === 'created') {
-					if (req.body.resource.intent === 'order') {
-						let r = await dbManager.findUserPayment(req.body.resource.id);
-						if (r.rows && r.rows[0]) {
-							const payerId = r.rows[0].payerId
-							const transactionId = r.rows[0].transaction_id
-							if (transactionId === req.body.resource.id) {
-								const t = await paypalManager.execute(req.body.resource.id, payerId, req.body.resource.transactions[0].amount.total);
-								let r = await dbManager.setPaymentState(req.body.resource.id, t.state);
-								await dbManager.setUserTransactionState(r.rows[0].id, 'order_placed');
-							}
-						}
-						
-					} else {
-						await dbManager.setTransactionState(req.body.resource.id, req.body.resource.state);
-						let r = await dbManager.findTransaction(req.body.resource.id);
-						if (r.rows && r.rows[0]) {
-							const payerId = r.rows[0].payerId
-							const transactionId = r.rows[0].transaction_id
-							if (transactionId === req.body.resource.id) {
-								await paypalManager.execute(transactionId, payerId, req.body.resource.transactions[0].amount.total);
-							}
-						}
-					}
-				}
-				break
-			case 'PAYMENT.AUTHORIZATION.CREATED':
-				const transactionId = req.body.resource.parent_payment
-				const auth = await paypalManager.getPaymentAuthoriztaion(req.body.resource.id);
-				if (auth.state !== 'captured') {
-					await paypalManager.capturePayment(req.body.resource.id, req.body.resource.amount.total);
-					let r = await dbManager.setTransactionState(transactionId, 'completed');
-					await dbManager.setPromotionStatus(transactionId, 'authorized');
-				}
-				break
-		}
-	}catch(e){
-		console.log(e)
+}))
+
+app.post('/confrim', loginware, wrapper(async (req, res) => {
+	if(paypal.events[req.body.event_type]){
+		paypal.events[req.body.event_type](db,req.body.resource)
 	}
-});
+}))
 
 app.get('/promo/error', loginware, (req, res) => {
 	res.render('general_error', { error: 'Ther was a problem with your transaction. Please try again later' })
-});
-
-app.post('/promo', loginware, async (req, res) => {
-	const classifiedKeys = Object.keys(req.body).filter(k => k !== 'date');
-	try{
-		let link = await promotionManager.createPromotion(req.body.date, classifiedKeys, req.userId);
-		res.redirect(link);
-	}catch(e){
-		console.log(e)
-		res.send({ error: 'There was a problem with craeting yout transaction. Please try again' });
-	}
-});
-app.post('/calculate', loginware, (req, res) => {
-	res.send(calcPromotion(req.body.date, req.body.classifieds));
-});
-app.get('/profile', loginware, (req,res)=>{
-	dbManager.getUser(req.userId).then((r)=>{
-		console.log(r.rows)
-		res.render('profile', {profile: r.rows[0], auth: req.authenticated})
-	})
 })
-app.get('/register', (req, res) => {
+
+app.post('/promo', loginware, wrapper(async (req, res) => {
+	const classifiedKeys = Object.keys(req.body).filter(k => k !== 'date')
+
+	const link = await promotion.createPromotion({ to: req.body.date, keys: classifiedKeys, userId: req.userId })
+	res.redirect(link)
+}))
+
+app.post('/calculate', loginware, wrapper((req, res) => {
+	res.send(promotion.calcPromotion(req.body))
+}))
+
+app.get('/profile', loginware, wrapper(async(req, res) => {
+	let user = await db.getUser(req.userId)
+	if(!user){
+		res.render('general_error', { error: 'Classified not found!' })
+	}
+	res.render('profile', { profile: user, auth: req.authenticated })
+
+}))
+
+app.get('/register', wrapper((req, res) => {
 	if (req.authenticated) { res.redirect('/list') }
-	res.render('register', { auth: req.authenticated });
-});
-app.post('/register', loginware, async(req, res) => {
+	res.render('register', { auth: req.authenticated })
+}))
+
+app.post('/register', loginware, wrapper(async (req, res) => {
 	if (req.authenticated) { res.redirect('/list') }
 	if (req.body.name.length !== 0 && req.body.password.length !== 0 && req.body.email.length !== 0) {
-		let api_key = crypto.randomBytes(30).toString('hex');
-		try{
-			await dbManager.createUser(req.body.name, req.body.password, req.body.email, req.body.gender, api_key);
-			res.redirect('/login');
-		}catch(e){
-			console.log(e)
-			res.render('general_error', { error: 'There was a problem try again later!' });
-		}
+		req.body.apiKey = crypto.randomBytes(30).toString('hex')
+		await db.createUser(req.body)
+		res.redirect('/login')
 	}
-});
-app.post('/comment/new', loginware, async (req, res) => {
-	try{	
-		await dbManager.createComment(req.userId, req.body.entity, req.body.comment);
-		res.send({});
-	}catch(e) {
-		console.log(e)
-		res.send({ error: 'there was a problem please try again later' });
-	}
-});
-app.get('/classified/new', loginware, (req, res) => {
-	res.render('create', { auth: req.authenticated });
-});
-app.post('/buy/:id', loginware, async(req, res) => {
-	const quantity = Number(req.body.quantity);
+}))
+
+app.post('/comment/new', loginware, wrapper(async (req, res) => {
+	await db.createComment({userId:req.userId, classifiedsEntity:req.body.entity, body:req.body.comment})
+	res.send()
+}))
+
+app.get('/classified/new', loginware, wrapper((req, res) => {
+	res.render('create', { auth: req.authenticated })
+}))
+
+app.post('/buy/:id', loginware, wrapper(async (req, res) => {
+	const quantity = Number(req.body.quantity)
 	if (quantity <= 0) {
-		res.send({ error: 'Invalid quantity' });
+		res.send({ error: 'Invalid quantity' })
 		return
 	}
-	try{
-		let r = await dbManager.getClassified(req.params.id);
-		const classified = r.rows[0]
+	const classified = await db.getClassified(req.params.id)
 
-		if (quantity > classified.quantity) {
-			res.send({ error: 'Invalid quantity' });
-			return
-		}
-		var payment = {
-			intent: 'order',
-			payer: {
-				payment_method: 'paypal'
-			},
-			redirect_urls: {
-				return_url: host + '/buy/success',
-				cancel_url: host + '/buy/error'
-			},
-			transactions: [{
-				item_list: {
-					items: [{
-						name: 'item',
-						sku: 'item',
-						price: classified.price,
-						currency: 'USD',
-						quantity: quantity
-					}]
-				},
-				amount: {
+	if (quantity > classified.quantity) {
+		res.send({ error: 'Invalid quantity' })
+		return
+	}
+	const payment = {
+		intent: 'order',
+		payer: {
+			payment_method: 'paypal'
+		},
+		redirect_urls: {
+			return_url: host + '/buy/success',
+			cancel_url: host + '/buy/error'
+		},
+		transactions: [{
+			item_list: {
+				items: [{
+					name: 'item',
+					sku: 'item',
+					price: classified.price,
 					currency: 'USD',
-					total: classified.price * quantity
-				},
-				description: 'Order for ' + classified.title
-			}]
-		}
-		const transaction = await paypalManager.createPay(payment);
-		let p = await dbManager.createPayment(transaction.id, req.userId, transaction.state, Number(transaction.transactions[0].amount.total), quantity, classified.entity_id);
-		await dbManager.createUserTransaction(p.rows[0].id, req.userId, classified.creator_id, 'awaiting_buyer_consent', Number(transaction.transactions[0].amount.total));
-		
-		res.send(transaction.links.filter(l => l.method === 'REDIRECT')[0].href);
-	}catch(e){
-		console.log(e)
-		res.render('general_error', { error: 'There was a problem with craeting yout transaction. Please try again' });
+					quantity: quantity
+				}]
+			},
+			amount: {
+				currency: 'USD',
+				total: classified.price * quantity
+			},
+			description: 'Order for ' + classified.title
+		}]
 	}
-});
-app.post('/ship', loginware, async (req, res) => {
-	try {
-		const pRows = await dbManager.getPayment(req.body.payment_id, req.userId);
-		if (pRows.rows.length === 0) { res.send({ error: 'No payments found!' }) };
-
-		const payment = pRows.rows[0]
-		const tr = await paypalManager.getPayment(payment.transaction_id);
-		if (tr.transactions[0].related_resources[0].order.state === 'COMPLETED') {
-			await dbManager.setUserTransactionState(payment.id, 'order_completed');
-			await dbManager.setQuantity(payment.classified_entity, payment.quantity - payment.order_quantity);
-			res.send('Transaction Completed');
-		} else {
-			const r = await dbManager.setPaymentState(payment.transaction_id, tr.transactions[0].related_resources[0].order.state);
-			const t = await paypalManager.orderAuthorize(tr.transactions[0].related_resources[0].order.id, tr.transactions[0].amount.total);
-
-			await dbManager.setPaymentState(payment.transaction_id, t.state);
-			await paypalManager.captureOrder(tr.transactions[0].related_resources[0].order.id, tr.transactions[0].amount.total);
-			await dbManager.setUserTransactionState(r.rows[0].id, 'order_completed');
-			await dbManager.setQuantity(payment.id, payment.quantity - payment.order_quantity);
-			res.send('Transaction Completed');
-		}
-	} catch (e) {
-		console.log(e)
-		res.send({ error: 'There was an error. Please try again later' });
-	}
-});
-app.get('/classified/:id', loginware, async (req, res) => {
-	try{
-		let r = await dbManager.getJoinedClassified(req.params.id);
-		if (r.rowCount === 0) {
-			res.render('general_error', { error: 'Classified not found!' });
-		} else {
-			if (r.rows[0].picture) {
-				r.rows[0].picture = Buffer.from(r.rows[0].picture).toString('base64');
+	db.tx(async() => {
+		const transaction = await paypal.createPay(payment);
+		const amount = Number(transaction.transactions[0].amount.total);
+		const p = await db.createPayment(
+			{
+				transactionId: transaction.id,
+				from: req.userId,
+				state: transaction.state,
+				amount,
+				quantity,
+				entityId: classified.entityId
 			}
-			res.render('classified', { c: r.rows[0], comments: r.rows.filter(r => r.comment_date !== null), auth: req.authenticated });
-		}
-	}catch(e){
-		res.render('general_error', { error: 'Classified not found!' });
-	}
-});
-app.get('/logout', loginware, async(req, res) => {
-	if (req.userId) {
-		try{
-			await dbManager.stopSession(req.userId);
-			res.clearCookie('sessionToken');
-			res.redirect('/list');
-		}catch(e){
-			res.render('general_error', { error: 'There was an error! Please try again later!' })
-		}
-	}
-});
-app.get('/login', (req, res) => {
-	if (req.authenticated) { res.redirect('/list'); return; }
+		)
+		await db.createUserTransaction(
+			{
+				userPaymentId: p.id,
+				from: req.userId,
+				to: classified.creator_id,
+				status: 'awaiting_buyer_consent',
+				amount
+			}
+		)
+	})
+
+	res.send(transaction.links.filter(l => l.method === 'REDIRECT')[0].href)
+}))
+
+app.post('/ship', loginware, wrapper(async (req, res) => {
+	const payment = await db.getPayment({transactionId: req.body.payment_id, userId: req.userId})
+	if (!payment || payment.rows.length === 0) { res.send({ error: 'No payments found!' }) };
 	
-	res.render('login', { auth: req.authenticated });
-});
-app.get('/list', loginware, async (req, res) => {
-	try{
-		let rows = await dbManager.getClassfiedPromotion();
-		const formatted = OneDToTwoD(rows.rows, 3);
-		rows.rows.sort((a, b) => {
-			if (a.status === 'authorized') {
-				return 1;
-			} else if (b.status === 'authorized') {
-				return -1;
-			}
-		});
-		for (const row of rows.rows) {
-			if (row.picture) {
-				row.picture = Buffer.from(row.picture).toString('base64');
-			}
-		}
-		res.render('list', { classifieds: formatted, auth: req.authenticated });
-	}catch(e){
-		console.log(e);
-		res.render('general_error', { error: 'There was an error! Please try again later!' });
-	}
-});
+	const transactionId = payment.transaction_id
+	const orderId = r.transactions[0].related_resources[0].order.id
+	const total = tr.transactions[0].amount.total
+	const state = tr.transactions[0].related_resources[0].order.state
+	
+	const tr = await paypal.getPayment(transactionId)
 
-app.post('/classified', loginware, async (req, res) => {
-	try{
-		for (const prop in req.body) {
-			if (req.body[prop].length === 0) {
-				res.render('create', { error: prop + ' can not be empty', auth: req.authenticated });
-			}
+	payment.quantity -= payment.order_quantity
+	
+	db.tx(async()=>{
+		if (state === 'COMPLETED') {
+			await db.setUserTransactionState({ id: payment.id, state: 'order_completed' })
+			await db.setQuantity(payment)
+			res.send('Transaction Completed')
+		} else {
+			const r = await db.setPaymentState({ transactionId, state: state })
+			const t =  paypal.orderAuthorize({ orderId, total })
+			await db.setPaymentState({ transactionId, state: t.state })
+			await paypal.captureOrder({ orderId, total })
+			await db.setUserTransactionState({ id: r.id, state: 'order_completed' })
+			await db.setQuantity(payment)
+			res.send('Transaction Completed')
 		}
-		console.log(req.files)
-		await dbManager.createClassified(req.body.title,
-			crypto.randomBytes(10).toString('hex'),
-			req.userId, req.body.description,
-			req.files.picture.data,
-			req.body.price,
-			req.body.quantity);
-		res.redirect('/list');
-	}catch(e){
-		console.log(e)
-		res.render('general_error', { error: 'There was an error! Please try again later!' });
-	}
-});
-app.post('/login', async (req, res) => {
-	try{
-		dbManager.authenticateUser(req.body.name, req.body.password, async(status) => {
-			if (status.authenticated) {
-				const secret = crypto.randomBytes(30).toString('hex');
-				await dbManager.login(status.user.id, secret);
-				res.cookie('sessionToken', secret).redirect('/list');
-			} else {
-				res.render('login', { error: status.message, auth: req.authenticated });
-			}
-		});
-	}catch(e){
-		console.log(e)
-		res.render('general_error', { error: 'There was an error! Please try again later!' });
-	}
-});
+	})
+}))
 
-dbManager.createTables()
-	.then(() => {
-		console.log('Tables created successful!')
-		app.listen(port, () => {
-			console.log('App working and listening on port ' + port)
-		});
-	});
+app.get('/classified/:id', loginware, wrapper(async (req, res) => {
+	const classified =  await db.getJoinedClassified(req.params.id)
+	if(!classified){
+		res.render('general_error', { error: 'Classified not found!' })
+		return;
+	}
+	if (classified.picture) {
+		classified.picture = Buffer.from(r).toString('base64')
+	}
+	res.render('classified', { c: classified, comments: r.rows.filter(r => r.comment_date !== null), auth: req.authenticated })
+}))
+app.get('/logout', loginware, wrapper(async (req, res) => {
+	await db.stopSession(req.userId);
+	res.clearCookie('sessionToken');
+	res.redirect('/list');
+}))
+
+app.get('/login', wrapper((req, res) => {
+	if (req.authenticated) { res.redirect('/list'); return }
+	res.render('login', { auth: req.authenticated })
+}))
+
+
+app.post('/classified', loginware, wrapper(async (req, res) => {
+	for (const prop in req.body) {
+		if (req.body[prop].length === 0) {
+			res.render('create', { error: prop + ' can not be empty', auth: req.authenticated })
+		}
+	}
+	req.body.picture = req.files.picture.data;
+	req.body.entityId = crypto.randomBytes(10).toString('hex');
+	await db.createClassified(req.body);
+	res.redirect('/list')
+}))
+
+app.post('/login', wrapper(async (req, res) => {
+
+	let status = await db.authenticateUser({username: req.body.name, password: req.body.password})
+	if (!status.authenticated) {
+		res.render('login', { error: status.message, auth: req.authenticated });
+		return;
+	}
+	const secret = crypto.randomBytes(30).toString('hex');
+	await db.login({ userId: status.user.id, secret });
+	res.cookie('sessionToken', secret).redirect('/list');
+	
+}))
+
+
+app.get('/list', wrapper(async (req, res) => {
+	const promotions = await db.getClassfiedPromotion();
+	if(!promotions){
+		res.render('general_error', { error: 'Classified not found!' })
+		return;
+	}
+	const formatted = OneDToTwoD(promotions, 3)
+	promotions.sort((a, b) => {
+		if (a.status === 'authorized') {
+			return 1
+		} else if (b.status === 'authorized') {
+			return -1
+		}
+	})
+	promotions.filter(r => r.picture).map(r => r.picture = Buffer.from(r.picture).toString('base64'))
+	res.render('list', { classifieds: formatted, auth: req.authenticated })
+}))
+
+db.createTables()
+.then(() => {
+	console.log('Tables created successful!')
+	app.listen(port, () => {
+		console.log('App working and listening on port ' + port)
+	})
+})
 
 function OneDToTwoD(array, lenght) {
 	const result = []
-	const cont = array.slice(0);
+	const cont = array.slice(0)
 	while (cont[0]) {
-		result.push(cont.splice(0, lenght));
+		result.push(cont.splice(0, lenght))
 	}
 	return result
 };
-
-function calcPromotion(date, classifieds) {
-	const days = Math.ceil((new Date(date) - new Date()) / (1000 * 60 * 60 * 24));
-
-	if (isNaN(days) || days <= 0) {
-		return ({ error: 'The period musts be at least one day' });
-	} else if (!classifieds || classifieds <= 0) {
-		return ({ error: 'Please select a classified!' });
-	} else {
-		return ({ value: ((days * 2 * classifieds) / bgn2dollarRate).toFixed(2) });
-	}
-}

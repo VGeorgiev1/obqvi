@@ -18,9 +18,12 @@ class RPC{
                     "picture": {type: Buffer}
                 },
                 method: async(obj) =>{
-                    obj.entity_id =  crypto.randomBytes(10).toString('hex')
-                    return (await dbManager.createClassified(obj.tittle, obj.entity_id, obj.user_id,obj.description,obj.picture, obj.price, obj.quantity)).rows[0].entity_id;
+                    obj.entityId =  crypto.randomBytes(10).toString('hex')
+                    return (await dbManager.createClassified(obj.tittle, obj.entityId, obj.userId,obj.description,obj.picture, obj.price, obj.quantity)).rows[0].entity_id;
                 }
+            },
+            updateClassified:{
+
             },
             calcPromotion:{
                 strictParams: false,
@@ -29,7 +32,7 @@ class RPC{
                     "classifieds": {type: "number", required: true}
                 },
                 method: async(obj)=>{
-                    return await promotionManager.calcPromotion(obj.date, obj.classifieds) 
+                    return await promotionManager.calcPromotion(obj) 
                 }
             },
             promoteClassified:{
@@ -39,7 +42,7 @@ class RPC{
                     "classifieds": {type: Array, required: true}
                 },
                 method: async(obj)=>{
-                    let link = await promotionManager.createPromotion(obj.date, obj.classifieds, obj.user_id)
+                    let link = await promotionManager.createPromotion({to:obj.date, keys:obj.classifieds, userId: obj.userId})
                     return link
                 }
             }
@@ -66,7 +69,7 @@ class RPC{
         let res = this.validator.validateParameters(obj, strict)
         if(!res.error){
             try{
-                obj.params.user_id = validApiKeyRes
+                obj.params.userId = validApiKeyRes
                 let result = await deffered(obj.params)
                 return this.response({id: obj.id, message: result})
             }catch(e){

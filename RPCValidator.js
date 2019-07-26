@@ -31,9 +31,9 @@ class RPCValidator{
             return this.errorCodes[0];
         }
     }
-    async validateApiKey(api_key){
+    async validateApiKey(apiKey){
         try{
-            let rows = (await this.dbManager.getUserByAPI(api_key)).rows;
+            let rows = (await this.dbManager.getUserByAPI(apiKey)).rows;
             if(!rows[0] || !rows[0].id){
                 return this.errorCodes[1];
             }

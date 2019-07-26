@@ -1,27 +1,29 @@
 
 const paypal = require('paypal-rest-sdk');
-class PaypalManager{
+const events = require('./PaypalDict'); 
+class Paypal{
     constructor(mode,client_id,client_secret){
         paypal.configure({
             'mode': mode, //sandbox or live 
             'client_id': client_id, // please provide your client id here 
             'client_secret': client_secret // provide your client secret here 
         });
+        this.events = events
     }
     createPay( payment ){
         return new Promise( ( resolve , reject ) => {
             paypal.payment.create( payment , function( err , payment ) {
                 if ( err ) {
-                    reject(err); 
+                    reject(err);
+                    return; 
                 }
-                else {
-                    resolve(payment); 
-                }
+                resolve(payment); 
+                
             }); 
         });
     }
     createWebhooks(url, events){
-        var create_webhook_json = {
+        const createWebhookJson = {
             "url": url,
             "event_types": events
         };
@@ -29,42 +31,37 @@ class PaypalManager{
             paypal.notification.webhook.list(async (error, webhooks) => {
                 if (error) {
                     throw error;
-                } else {
-                    let cb = ()=>{
-                        paypal.notification.webhook.create(create_webhook_json, function (error, webhook) {
-                                if (error) {
-                                    reject(error); 
-                                } else {
-                                    resolve(payment); 
-                                }
-                        });
-                    }
-                    if(webhooks.webhooks[0]){
-                        paypal.notification.webhook.del(webhooks.webhooks[0].id, cb);
-                    }else{
-                        cb();
-                    }
+                }
+                if(webhooks.webhooks[0]){
+                    paypal.notification.webhook.del(webhooks.webhooks[0].id, cb);
+                }else{
+                    paypal.notification.webhook.create(createWebhookJson, (error, webhook) => {
+                        if (error) {
+                            reject(error);
+                            return;
+                        }
+                        resolve(payment); 
+                    });
                 }
             });
             
         })
     }
-    getOrder(transaction_id){
+    getOrder(transactionId){
         return new Promise( ( resolve , reject ) => {
-            paypal.order.get(transaction_id, function (error, order) {
+            paypal.order.get(transactionId, function (error, order) {
                 if (error) {
-                    console.log(error);
                     reject(error);
-                } else {
-                    resolve(order);
-                }
+                    return;
+                } 
+                resolve(order);
             });
         })
     }
-    execute(transaction_id, payer_id, amount){
+    execute({transactionId, payerId, amount}){
         return new Promise( ( resolve , reject ) => {
-            let execute_payment_json = {
-                "payer_id": payer_id,
+            let executePaymentJson = {
+                "payer_id": payerId,
                 "transactions": [{
                     "amount": {
                         "currency": "USD",
@@ -72,7 +69,7 @@ class PaypalManager{
                     }
                 }]
             };
-            paypal.payment.execute(transaction_id, execute_payment_json, function (error, payment) {
+            paypal.payment.execute(transactionId, executePaymentJson, function (error, payment) {
                 if (error) {
                     console.log(error.response);
                     reject(error); 
@@ -82,9 +79,9 @@ class PaypalManager{
             });
         })
     }
-    getPaymentAuthoriztaion(transaction_id){
+    getPaymentAuthoriztaion(transactionId){
         return new Promise( ( resolve , reject ) => {
-            paypal.authorization.get(transaction_id, (err, auth)=>{
+            paypal.authorization.get(transactionId, (err, auth)=>{
                 if (err) {
                     console.log(error.response);
                     reject(err); 
@@ -95,9 +92,9 @@ class PaypalManager{
         })
     }
 
-    capturePayment(transaction_id, amount){
+    capturePayment({transactionId, amount}){
         return new Promise( ( resolve , reject ) => {
-            paypal.authorization.capture(transaction_id, {"amount": {total: amount, currency: "USD"}, "is_final_capture": true}, (error,auth)=>{
+            paypal.authorization.capture(transactionId, {"amount": {total: amount, currency: "USD"}, "is_final_capture": true}, (error,auth)=>{
                 if (error) {
                     console.log(error.response);
                     reject(err); 
@@ -107,9 +104,9 @@ class PaypalManager{
             })
         })
     }
-    orderAuthorize(transaction_id, amount){
+    orderAuthorize({oderId, total}){
         return new Promise( ( resolve , reject ) => {
-            paypal.order.authorize(transaction_id, {"amount": {total: amount, currency: "USD"}}, function (error, auth) {
+            paypal.order.authorize(oderId, {"amount": {total, currency: "USD"}}, function (error, auth) {
                 if (error) {
                     reject(error);
                 } else {
@@ -118,9 +115,9 @@ class PaypalManager{
             });
         })
     }
-    captureOrder(transaction_id, amount){
+    captureOrder({orderId, total}){
         return new Promise( ( resolve , reject ) => {
-            paypal.order.capture(transaction_id, {"amount": {total: amount, currency: "USD"}, "is_final_capture": true}, (error,auth)=>{
+            paypal.order.capture(orderId, {"amount": {total, currency: "USD"}, "is_final_capture": true}, (error,auth)=>{
                 if (error) {
                     console.log(error.response);
                     reject(error); 
@@ -130,9 +127,9 @@ class PaypalManager{
             })
         })
     }
-    getPayment(transaction_id){
+    getPayment(transactionId){
         return new Promise( ( resolve , reject ) => {
-            paypal.payment.get(transaction_id, (error,auth)=>{
+            paypal.payment.get(transactionId, (error,auth)=>{
                 if (error) {
                     console.log(error.response);
                     reject(error); 
@@ -142,9 +139,9 @@ class PaypalManager{
             })
         })
     }
-    getOrderAuthorization(transaction_id){
+    getOrderAuthorization(transactionId){
         return new Promise( ( resolve , reject ) => {
-            paypal.order.get(transaction_id, (err, auth)=>{
+            paypal.order.get(transactionId, (err, auth)=>{
                 if (err) {
                     console.log(err.response);
                     reject(err); 
@@ -155,7 +152,7 @@ class PaypalManager{
         })
     }
 }
-module.exports = PaypalManager;
+module.exports = Paypal;
 
 //create payment
 //get payment t.transactions[0].related_resources[0].orde.id
