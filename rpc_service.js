@@ -1,5 +1,5 @@
 const Validator = require('./rpc_validator');
-
+const assert = require('./assert');
 const crypto = require('crypto');
 
 class RPC {
@@ -7,6 +7,9 @@ class RPC {
     this.version = '2.0';
     this.db = db;
     this.promotion = promotion;
+    assert(db !== undefined, 'db instance is undefined');
+    assert(promotion !== undefined, 'promotion instance class is undefined');
+
     this.methods = {
       getClassified: {
         params: {
@@ -89,7 +92,6 @@ class RPC {
     if (validApiKeyRes.error) {
       return this.reject(validApiKeyRes);
     }
-
     const deffered = this.methods[obj.method].method;
 
     delete obj.params.api_key;
@@ -100,7 +102,6 @@ class RPC {
         const result = await deffered(obj.params);
         return this.response({ id: obj.id, message: result });
       } catch (e) {
-        console.log(e.stack.split('\n'));
         return this.reject(this.validator.errorCodes[4]);
       }
     } else {

@@ -3,6 +3,8 @@ const bodyParser = require('body-parser');
 const fileUpload = require('express-fileupload');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
+const sharp = require('sharp');
+
 const host = 'https://e70f28bd.ngrok.io';
 const assert = require('./assert');
 
@@ -25,58 +27,47 @@ app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(fileUpload());
-const wrapper = fn => async ( req, res ) => {
+
+const wrapper = fn => async (req, res, next) => {
   try {
-    await fn(req, res);
+    await fn(req, res, next);
   } catch (e) {
     console.log(e.message);
     res.render('general_error', { error: 'Something went wrong please try again later' });
   }
 };
-const loginware = async (req, res, next) => {
+const loginware = wrapper(async (req, res, next) => {
   if (!req.cookies.sessionToken) {
     res.redirect('/login');
     return;
   }
-  try {
-    const ses = await db.getSession(req.cookies.sessionToken);
-    if (!ses) {
-      res.redirect('/login');
-      return;
-    }
-    req.authenticated = true;
-    req.userId = ses.user_id;
-    next();
-  } catch (e) {
-    console.log(e);
-    res.render('general_error', { error: 'There was a problemm please try again later.' });
+  const ses = await db.getSession(req.cookies.sessionToken);
+  if (!ses) {
+    res.redirect('/login');
+    return;
   }
-};
+  req.authenticated = true;
+  req.userId = ses.user_id;
+  next();
+});
 
 app.get('/promo', loginware, wrapper(async (req, res) => {
   const rows = await db.getUserClassfieds(req.userId);
-  if (!rows) {
-    res.render('general_error', { error: 'Classifieds not found!' });
-  }
-  res.render('promo', { classifieds: rows.rows, auth: req.authenticated });
+  assert(rows !== undefined, 'Ads for promos are undefined!');
+  res.render('promo', { classifieds: rows, auth: req.authenticated });
 }));
 
 app.get('/shipments/my', loginware, wrapper(async (req, res) => {
   const rows = await db.getShipments(req.userId);
-  if (!rows) {
-    res.render('general_error', { error: 'Classifieds not found!' });
-  }
+  assert(rows !== undefined, 'Shipments are undefined');
   res.render('shipments', { classifieds: rows.rows, auth: req.authenticated });
 }));
 
 app.get('/promo/success', loginware, wrapper(async (req, res) => {
   await db.prepareTransaction(req.query);
   const promotions = await db.getPromotions(req.query.paymentId);
-  if (!promotions) {
-    res.render('promo_success', { classifieds: promotions, auth: req.authenticated });
-    return;
-  }
-  res.render('general_error', { error: 'There was a problem preparing your transactions!' });
+  assert(promotions !== undefined, 'Promotion is undefined');
+  res.render('promo_success', { classifieds: promotions, auth: req.authenticated });  
 }));
 
 app.get('/buy/success', loginware, wrapper(async (req, res) => {
@@ -88,13 +79,12 @@ app.get('/buy/success', loginware, wrapper(async (req, res) => {
 }));
 
 app.get('/', wrapper((req, res) => {
-  res.redirect('/list');
+  res.redirect('/list/1');
 }));
 
 app.post('/rpc', wrapper(async (req, res) => {
   res.setHeader('Content-Type', 'application/json-rpc');
   if (req.headers['content-type'] !== 'application/json' && req.headers['content-type'] !== 'application/json-rpc') {
-    console.log('here?');
     res.send({ jsonrpc: '2.0', error: { code: -32700, message: 'Invalid Request' }, id: null });
   } else {
     const result = await rpc.execute(req.body);
@@ -120,14 +110,12 @@ app.post('/promo', loginware, wrapper(async (req, res) => {
 }));
 
 app.post('/calculate', loginware, wrapper((req, res) => {
-  res.send(promotion.calcPromotion(req.body));
+  res.send(promotion.calcPromotion({ to: req.body.date, classifiedsCount: req.body.classifieds }));
 }));
 
 app.get('/profile', loginware, wrapper(async (req, res) => {
   const user = await db.getUser(req.userId);
-  if (!user) {
-    res.render('general_error', { error: 'Classified not found!' });
-  }
+  assert(user !== undefined, 'user is undefined');
   console.log(user);
   res.render('profile', { profile: user, auth: req.authenticated });
 }));
@@ -194,7 +182,8 @@ app.post('/buy/:id', loginware, wrapper(async (req, res) => {
   };
   db.tx(async () => {
     const transaction = await paypal.createPay(payment);
-    const amount = Number(transaction.transactions[0].amount.total);
+    assert(transaction !== undefined);
+    const amount = classified.price * quantity;
     const p = await db.createPayment(
       {
         transactionId: transaction.id,
@@ -223,8 +212,10 @@ app.post('/ship', loginware, wrapper(async (req, res) => {
   if (!payment) { res.send({ error: 'No payments found!' }); }
 
   const transactionId = payment.transaction_id;
-
   const tr = await paypal.getPayment(transactionId);
+  assert(tr !== undefined, 'transaction is not defined!');
+  assert(typeof tr === 'object', 'transaction is not aa object');
+
   const orderId = tr.transactions[0].related_resources[0].order.id;
   const total = tr.transactions[0].amount.total;
   const state = tr.transactions[0].related_resources[0].order.state;
@@ -250,12 +241,9 @@ app.post('/ship', loginware, wrapper(async (req, res) => {
 
 app.get('/classified/:id', loginware, wrapper(async (req, res) => {
   const classified = await db.getJoinedClassified(req.params.id);
-  if (!classified) {
-    res.render('general_error', { error: 'Classified not found!' });
-    return;
-  }
-  if (classified.picture) {
-    classified.picture = Buffer.from(classified.picture).toString('base64');
+  assert(classified !== undefined, 'classified are not defined');
+  if (classified[0].picture) {
+    classified[0].picture = Buffer.from(classified[0].picture).toString('base64');
   }
   res.render('classified', { c: classified[0], comments: classified.filter(r => r.comment_date !== null), auth: req.authenticated });
 }));
@@ -276,14 +264,18 @@ app.post('/classified', loginware, wrapper(async (req, res) => {
       res.render('create', { error: prop + ' can not be empty', auth: req.authenticated });
     }
   }
+
+  req.body.userId = req.userId;
   req.body.picture = req.files.picture.data;
+  req.body.picture = await sharp(req.body.picture).resize(500, 500).toBuffer();
   req.body.entityId = crypto.randomBytes(10).toString('hex');
   await db.createClassified(req.body);
-  res.redirect('/list');
+  res.redirect('/list/1');
 }));
 
 app.post('/login', wrapper(async (req, res) => {
   const status = await db.authenticateUser({ username: req.body.name, password: req.body.password });
+ 
   if (!status.authenticated) {
     res.render('login', { error: status.message, auth: req.authenticated });
     return;
@@ -293,13 +285,14 @@ app.post('/login', wrapper(async (req, res) => {
   res.cookie('sessionToken', secret).redirect('/list');
 }));
 
-app.get('/list', loginware, wrapper(async (req, res) => {
-  const promotions = await db.getClassfiedPromotion();
-  if (!promotions) {
-    res.render('general_error', { error: 'Classified not found!' });
-    return;
-  }
-  const formatted = OneDToTwoD(promotions, 3);
+app.get('/list/:id', loginware, wrapper(async (req, res) => {
+  assert(req.params.id >= 1, 'page not correct'); 
+  const promotions = await db.getClassfiedPromotion((req.params.id - 1) * 30, 30);
+  const rowCount = +(await db.getClassifiedCount());
+  assert(promotion !== undefined, 'promotions are undefined!');
+  assert(rowCount !== undefined, 'row count is undefined');
+  assert(typeof rowCount === 'number', 'row count is not a number');
+
   promotions.sort((a, b) => {
     if (a.status === 'authorized') {
       return 1;
@@ -308,8 +301,8 @@ app.get('/list', loginware, wrapper(async (req, res) => {
     }
   });
   promotions.filter(r => r.picture).map(r => r.picture = Buffer.from(r.picture).toString('base64'));
-  console.log(promotions) 
-  res.render('list', { classifieds: formatted, auth: req.authenticated });
+  const formatted = OneDToTwoD(promotions, 3);
+  res.render('list', { classifieds: formatted, auth: req.authenticated, page: req.params.id, maxPage: Math.ceil(rowCount / 30) });
 }));
 
 db.createTables()

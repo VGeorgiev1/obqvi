@@ -16,10 +16,12 @@
     "errorhandler": "^1.5.1",
     "express": "^4.17.1",
     "express-fileupload": "^1.1.5",
+    "image-size": "^0.7.4",
     "ngrok": "^3.2.3",
     "paypal-rest-sdk": "^1.8.1",
     "pg": "^7.11.0",
-    "pug": "^2.0.4"
+    "pug": "^2.0.4",
+    "sharp": "^0.22.1"
   },
   "devDependencies": {
     "eslint": "^6.1.0",

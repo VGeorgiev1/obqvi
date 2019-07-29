@@ -56,7 +56,7 @@ class Db {
     return (await this.client.query(/* sql */`
       SELECT cl.id,cl.status, cl.entity_id, cl.title FROM classifieds as cl
       LEFT JOIN promotions as p ON p.classified_entity = cl.entity_id
-      WHERE creator_id = $1 AND p.status IS NULL; 
+      WHERE creator_id = $1 AND p.status IS NULL AND cl.closed_at IS NULL; 
     `, [userId])).rows;
   }
 
@@ -194,7 +194,7 @@ class Db {
   async getClassified (entityId) {
     return (await this.client.query(/* sql */`
       SELECT price,creator_id, entity_id, title, description, quantity, created_at as classified_date,picture FROM classifieds cl
-      WHERE entity_id = $1
+      WHERE entity_id = $1 AND closed_at IS NULL
     `, [entityId])).rows[0];
   }
 
@@ -234,13 +234,21 @@ class Db {
     `, [entityId]);
   }
 
-  async getClassfiedPromotion () {
+  async getClassfiedPromotion (offset, limit) {
     return (await this.client.query(/* sql */`
-      SELECT DISTINCT c.entity_id as c_id,u.id,c.title,c.description,c.picture,c.quantity,u.username,u.email,p.status FROM classifieds as c
+      SELECT DISTINCT c.entity_id as c_id,c.created_at,u.id,c.title,c.description,c.picture,c.quantity,u.username,u.email,p.status FROM classifieds as c
       INNER JOIN users u ON u.id = c.creator_id
       LEFT JOIN promotions p ON p.classified_entity = c.entity_id
       WHERE c.closed_at IS NULL
-    `)).rows;
+      ORDER BY c.created_at DESC
+      LIMIT $2 OFFSET $1
+    `, [offset, limit])).rows;
+  }
+
+  async getClassifiedCount () {
+    return (await this.client.query(/* sql */`
+      SELECT COUNT(*) FROM classifieds;
+    `)).rows[0].count;
   }
 
   async getPayment ({ transactionId, userId }) {

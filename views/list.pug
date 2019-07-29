@@ -21,3 +21,45 @@ block content
 						.card-deck
 							each classified in row
 								+card(classified)
+		.row
+			nav.mx-auto(aria-label='Page navigation example')
+				ul.pagination
+					if +page - 1 > 0
+						li.page-item
+							a.page-link(href=`/list/${+page - 1}`, aria-label='Previous')
+								span(aria-hidden='true') «
+								span.sr-only Previous
+					if +page - 10 > 0
+						li.page-item
+							a.page-link(href=`/list/${+page - 10}`)="..."
+					if +page - 3 > 0
+						li.page-item
+							a.page-link(href=`/list/${+page - 3}`)=+page - 3
+					if +page - 2 > 0
+						li.page-item
+							a.page-link(href=`/list/${+page - 2}`)=+page - 2
+					if +page - 1 > 0
+						li.page-item
+							a.page-link(href=`/list/${+page - 1}`)=+page - 1
+					li.page-item.active
+						a.page-link(href=`/list/${+page}`)=+page
+					if +page + 1 <= +maxPage
+						li.page-item
+							a.page-link(href=`/list/${+page + 1}`)=+page + 1
+					if +page + 2 < +maxPage
+						li.page-item
+							a.page-link(href=`/list/${+page + 2}`)=+page + 2
+					if +page + 3 < +maxPage
+						li.page-item
+							a.page-link(href=`/list/${+page + 3}`)=+page + 3
+					if + page + 10 < +maxPage
+						li.page-item
+							a.page-link(href=`/list/${+page + 10}`)="..."	
+					if +page + 1 <= +maxPage
+						li.page-item
+							a.page-link(href=`/list/${+page + 1}`, aria-label='Next')
+								span(aria-hidden='true') »
+								span.sr-only Next
+						li.page-item
+							a.page-link(href=`/list/${+maxPage}`)=maxPage	
+

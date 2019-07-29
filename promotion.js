@@ -53,7 +53,7 @@ class Promotion {
 
   calcPromotion ({ to, classifiedsCount }) {
     const days = Math.ceil((new Date(to) - new Date()) / (1000 * 60 * 60 * 24));
-
+    
     if (isNaN(days) || days <= 0) {
       return ({ error: 'The period musts be at least one day' });
     } else if (!classifiedsCount || classifiedsCount <= 0) {
