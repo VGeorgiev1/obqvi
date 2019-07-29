@@ -1,2 +1,4 @@
 {
+    "scss.lint.propertyIgnoredDueToDisplay": "error",
+    "css.lint.propertyIgnoredDueToDisplay": "error"
 }
