@@ -1,6 +1,6 @@
 class Promotion {
-  constructor (paypalManager, db, host) {
-    this.paypalManager = paypalManager;
+  constructor (paypal, db, host) {
+    this.paypal = paypal;
     this.db = db;
     this.host = host;
     this.bgn2dollarRate = 1.74;
@@ -28,7 +28,7 @@ class Promotion {
         description: `Classified promotion for ${keys.lenght} promotion until ${to}`
       }]
     };
-    const transaction = await this.paypalManager.createPay(payment);
+    const transaction = await this.paypal.createPay(payment);
     const tr = {
       transactionId: transaction.id,
       state: transaction.state,

@@ -1,6 +1,6 @@
 
 const paypal = require('paypal-rest-sdk');
-const events = require('./PaypalDict');
+const events = require('./paypal_events');
 class Paypal {
   constructor (mode, clientId, clientSecret) {
     paypal.configure({
@@ -33,14 +33,7 @@ class Paypal {
         if (err) {
           throw err;
         }
-        if (webhooks.webhooks[0]) {
-          paypal.notification.webhook.del(webhooks.webhooks[0].id, (err) => {
-            if (err) {
-              reject(err);
-            }
-            resolve();
-          });
-        } else {
+        if (!webhooks.webhooks[0]) {
           paypal.notification.webhook.create(createWebhookJson, (err, webhook) => {
             if (err) {
               reject(err);
@@ -49,6 +42,12 @@ class Paypal {
             resolve(webhook);
           });
         }
+        paypal.notification.webhook.del(webhooks.webhooks[0].id, (err) => {
+          if (err) {
+            reject(err);
+          }
+          resolve();
+        });
       });
     });
   }

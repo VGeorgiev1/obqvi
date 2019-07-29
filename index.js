@@ -6,10 +6,10 @@ const crypto = require('crypto');
 const host = 'https://e70f28bd.ngrok.io';
 const assert = require('./assert');
 
-const PROMOTION = require('./Promotion');
-const RPC = require('./RPCService');
+const PROMOTION = require('./promotion');
+const RPC = require('./rpc_service');
 const DB = require('./db');
-const PAYPAL = require('./Paypal');
+const PAYPAL = require('./paypal');
 
 const db = new DB();
 const paypal = new PAYPAL('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET);
@@ -25,7 +25,7 @@ app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(fileUpload());
-const wrapper = fn => async ({ req, res }) => {
+const wrapper = fn => async ( req, res ) => {
   try {
     await fn(req, res);
   } catch (e) {
@@ -45,7 +45,7 @@ const loginware = async (req, res, next) => {
       return;
     }
     req.authenticated = true;
-    req.userId = ses.userId;
+    req.userId = ses.user_id;
     next();
   } catch (e) {
     console.log(e);
@@ -128,6 +128,7 @@ app.get('/profile', loginware, wrapper(async (req, res) => {
   if (!user) {
     res.render('general_error', { error: 'Classified not found!' });
   }
+  console.log(user);
   res.render('profile', { profile: user, auth: req.authenticated });
 }));
 
@@ -136,9 +137,8 @@ app.get('/register', wrapper((req, res) => {
   res.render('register', { auth: req.authenticated });
 }));
 
-app.post('/register', loginware, wrapper(async (req, res) => {
-  if (req.authenticated) { res.redirect('/list'); }
-  if (req.body.name.length !== 0 && req.body.password.length !== 0 && req.body.email.length !== 0) {
+app.post('/register', wrapper(async (req, res) => {
+  if (req.body.username.length !== 0 && req.body.password.length !== 0 && req.body.email.length !== 0) {
     req.body.apiKey = crypto.randomBytes(30).toString('hex');
     await db.createUser(req.body);
     res.redirect('/login');
@@ -257,7 +257,7 @@ app.get('/classified/:id', loginware, wrapper(async (req, res) => {
   if (classified.picture) {
     classified.picture = Buffer.from(classified.picture).toString('base64');
   }
-  res.render('classified', { c: classified, comments: classified.filter(r => r.comment_date !== null), auth: req.authenticated });
+  res.render('classified', { c: classified[0], comments: classified.filter(r => r.comment_date !== null), auth: req.authenticated });
 }));
 app.get('/logout', loginware, wrapper(async (req, res) => {
   await db.stopSession(req.userId);
@@ -293,7 +293,7 @@ app.post('/login', wrapper(async (req, res) => {
   res.cookie('sessionToken', secret).redirect('/list');
 }));
 
-app.get('/list', wrapper(async (req, res) => {
+app.get('/list', loginware, wrapper(async (req, res) => {
   const promotions = await db.getClassfiedPromotion();
   if (!promotions) {
     res.render('general_error', { error: 'Classified not found!' });
@@ -308,6 +308,7 @@ app.get('/list', wrapper(async (req, res) => {
     }
   });
   promotions.filter(r => r.picture).map(r => r.picture = Buffer.from(r.picture).toString('base64'));
+  console.log(promotions) 
   res.render('list', { classifieds: formatted, auth: req.authenticated });
 }));
 

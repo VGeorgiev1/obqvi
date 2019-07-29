@@ -1,8 +1,7 @@
 const Client = require('pg').Client;
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
-
-class Dbmanager {
+class Db {
   constructor (errorHandler) {
     this.client = new Client({
       user: 'postgres',
@@ -42,37 +41,38 @@ class Dbmanager {
   async createUser ({ username, password, email, gender, apiKey }) {
     const hash = await bcrypt.hash(password, saltRounds);
     return this.client.query(/* sql */`
-      INSERT INTO "users"(username,password,email,gender,api_key) VALUES($1,$2,$3,$4,$5);
+      INSERT INTO users(username,password,email,gender,api_key) VALUES($1,$2,$3,$4,$5);
       `, [username, hash, email, gender, apiKey]);
   }
 
   async createPromotion ({ transactionId, classifiedId, to, status }) {
     return this.client.query(/* sql */`
-      INSERT INTO "promotions"(transaction_id,classified_entity,end_date, status)
+      INSERT INTO promotions(transaction_id,classified_entity,end_date, status)
       VALUES($1,$2,TO_TIMESTAMP($3, 'MM/DD/YYYY'),$4);
     `, [transactionId, classifiedId, to, status]);
   }
 
   async getUserClassfieds (userId) {
     return (await this.client.query(/* sql */`
-      SELECT cl.id,cl.status, cl.entity_id, cl.title FROM "classifieds" as cl
-      LEFT JOIN "promotions" as p ON p.classified_entity = cl.entity_id
+      SELECT cl.id,cl.status, cl.entity_id, cl.title FROM classifieds as cl
+      LEFT JOIN promotions as p ON p.classified_entity = cl.entity_id
       WHERE creator_id = $1 AND p.status IS NULL; 
     `, [userId])).rows;
   }
 
+
   async getUser (userId) {
     return (await this.client.query(/* sql */`
-      SELECT * FROM "users" 
+      SELECT * FROM users 
       WHERE id = $1; 
     `, [userId])).rows[0];
   }
 
   async getShipments (userId) {
     return (await this.client.query(/* sql */`
-      SELECT c.title,c.entity_id ,up.transaction_id, up.quantity, up.amount FROM "user_transactions" as ut
-      INNER JOIN "user_payments" as up ON ut.user_payment_id = up.id
-      INNER JOIN "classifieds" as c ON c.entity_id = up.classified_entity
+      SELECT c.title,c.entity_id ,up.transaction_id, up.quantity, up.amount FROM user_transactions as ut
+      INNER JOIN user_payments as up ON ut.user_payment_id = up.id
+      INNER JOIN classifieds as c ON c.entity_id = up.classified_entity
       WHERE ut.recipant = $1 AND ut.state != 'order_completed'
     `, [userId])).rows[0];
   }
@@ -81,7 +81,7 @@ class Dbmanager {
     console.log(username);
     console.log(password);
     const res = await this.client.query(/* sql */`
-      SELECT * FROM "users" WHERE username = $1
+      SELECT * FROM users WHERE username = $1
     `, [username]);
     if (!res.rows[0]) {
       return { authenticated: false, message: 'Wrong username!' };
@@ -95,14 +95,14 @@ class Dbmanager {
 
   async getTransaction (transactionId) {
     return this.client.query(/* sql */`
-      SELeCT * FROM "promotion_transactions"
+      SELeCT * FROM promotion_transactions
       WHERE transaction_id = $1
     `, [transactionId]);
   }
 
   async createTransaction ({ transactionId, state, userId, amount }) {
     return this.client.query(/* sql */`
-      INSERT INTO "promotion_transactions"(transaction_id, state,sender_id, amount) VALUES($1,$2,$3,$4)
+      INSERT INTO promotion_transactions(transaction_id, state,sender_id, amount) VALUES($1,$2,$3,$4)
     `, [transactionId, state, userId, amount]);
   }
 
@@ -133,7 +133,7 @@ class Dbmanager {
 
   async getPromotions (transactionId) {
     return (await this.client.query(/* sql */`
-      SELECT * FROM "promotions"
+      SELECT * FROM promotions
       WHERE transaction_id = $1 AND status = 'awaiting_auth'
     `, [transactionId])).rows[0];
   }
@@ -169,7 +169,7 @@ class Dbmanager {
 
   async getUserByAPI (apiKey) {
     return (await this.client.query(/* sql */`
-      SELECT id FROM "users" 
+      SELECT id FROM users 
       WHERE api_key = $1; 
     `, [apiKey])).rows[0];
   }
@@ -185,54 +185,76 @@ class Dbmanager {
   async getJoinedClassified (entityId) {
     return (await this.client.query(/* sql */`
       SELECT cl.price,cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date, c.created_at as comment_date, c.body,c.user_id,u.username,cl.picture FROM classifieds cl
-      LEFT JOIN "comments" c on c.classified_entity = cl.entity_id
-      LEFT JOIN "users" as u ON u.id = c.user_id
-      WHERE cl.entity_id = $1
-    `, [entityId])).rows[0];
+      LEFT JOIN comments c on c.classified_entity = cl.entity_id
+      LEFT JOIN users as u ON u.id = c.user_id
+      WHERE cl.entity_id = $1 AND closed_at IS NULL
+    `, [entityId])).rows;
   }
 
   async getClassified (entityId) {
     return (await this.client.query(/* sql */`
-      SELECT cl.price,cl.creator_id, cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date,cl.picture FROM classifieds cl
-      WHERE cl.entity_id = $1
+      SELECT price,creator_id, entity_id, title, description, quantity, created_at as classified_date,picture FROM classifieds cl
+      WHERE entity_id = $1
     `, [entityId])).rows[0];
   }
 
   async createComment ({ userId, classifiedsEntity, body }) {
     return this.client.query(/* sql */`
-      INSERT INTO "comments"(user_id,classified_entity, body)
+      INSERT INTO comments(user_id,classified_entity, body)
       VALUES($1,$2,$3)
     `, [userId, classifiedsEntity, body]);
   }
 
   async createClassified ({ title, entityId, userId, description, picture, price, quantity }) {
-    return this.client.query(/* sql */`
-      INSERT INTO "classifieds" (title,creator_id,description,picture,price,quantity, entity_id)
+    // eslint-disable-next-line no-return-await
+    return (await this.client.query(/* sql */`
+      INSERT INTO classifieds (title,creator_id,description,picture,price,quantity, entity_id)
       VALUES($1,$2,$3,$4,$5, $6,$7)
       RETURNING entity_id
-    `, [title, userId, description, picture, price, quantity, entityId]);
+    `, [title, userId, description, picture, price, quantity, entityId])).rows[0];
+  }
+
+  async updateClassified ({entityId, title, description, price, quantity, picture, userId }) {
+    return this.client.query(/* sql */`
+      UPDATE classifieds SET
+        title = COALESCE($2, title),
+        description = COALESCE($3, description),
+        price = COALESCE($4, price),
+        quantity = COALESCE($5, quantity),
+        picture = COALESCE($6, picture)
+      WHERE entity_id = $1 AND creator_id = $7;
+    `, [entityId, title, description, price, quantity, picture, userId]);
+  }
+
+  async deleteClassified (entityId) {
+    return this.client.query(/* sql */`
+      UPDATE classifieds SET
+        closed_at = NOW()
+      WHERE entity_id = $1 AND closed_at IS NULL
+    `, [entityId]);
   }
 
   async getClassfiedPromotion () {
     return (await this.client.query(/* sql */`
-      SELECT DISTINCT c.entity_id as c_id,u.id,c.title,c.description,c.picture,c.quantity,u.username,u.email,p.status FROM "classifieds" as c
-      INNER JOIN "users" u ON u.id = c.creator_id
-      LEFT JOIN "promotions" p ON p.classified_entity = c.entity_id
+      SELECT DISTINCT c.entity_id as c_id,u.id,c.title,c.description,c.picture,c.quantity,u.username,u.email,p.status FROM classifieds as c
+      INNER JOIN users u ON u.id = c.creator_id
+      LEFT JOIN promotions p ON p.classified_entity = c.entity_id
+      WHERE c.closed_at IS NULL
     `)).rows;
   }
 
   async getPayment ({ transactionId, userId }) {
     return (await this.client.query(/* sql */`
-      SELECT up.id, up.transaction_id, c.quantity,up.quantity as order_quantity , up.classified_entity FROM "user_payments" as up
-      INNER JOIN "user_transactions" ut ON up.id = ut.user_payment_id
-      INNER JOIN "classifieds" c ON c.entity_id = up.classified_entity
+      SELECT up.id, up.transaction_id, c.quantity,up.quantity as order_quantity , up.classified_entity FROM user_payments as up
+      INNER JOIN user_transactions ut ON up.id = ut.user_payment_id
+      INNER JOIN classifieds c ON c.entity_id = up.classified_entity
       WHERE up.transaction_id = $1 AND ut.recipant = $2;
     `, [transactionId, userId])).rows[0];
   }
 
   async prepareUserPayment ({ paymentId, token, PayerID }) {
     return (await this.client.query(/* sql */`
-      UPDATE "user_payments"
+      UPDATE user_payments
       SET token = $2,
         payer_id = $3
       WHERE transaction_id = $1
@@ -242,7 +264,7 @@ class Dbmanager {
 
   async setUserTransactionState ({ id, state }) {
     return this.client.query(/* sql */`
-      UPDATE "user_transactions"
+      UPDATE user_transactions
       SET state = $2
       WHERE id = $1;
     `, [id, state]);
@@ -250,14 +272,14 @@ class Dbmanager {
 
   async reateUserTransaction ({ userPaymentId, from, to, state, amount }) {
     return this.client.query(/* sql */`
-      INSERT INTO "user_transactions"(user_payment_id,sender,recipant,state,amount)
+      INSERT INTO user_transactions(user_payment_id,sender,recipant,state,amount)
       VALUES($1,$2,$3,$4,$5)
     `, [userPaymentId, from, to, state, amount]);
   }
 
   async createPayment ({ transactionId, from, state, amount, quantity, entityId }) {
     return (await this.client.query(/* sql */`
-      INSERT INTO "user_payments"(transaction_id,sender_id,state,amount, quantity, classified_entity)
+      INSERT INTO user_payments(transaction_id,sender_id,state,amount, quantity, classified_entity)
       VALUES($1,$2,$3,$4,$5,$6)
       RETURNING id
     `, [transactionId, from, state, amount, quantity, entityId])).rows[0];
@@ -265,7 +287,7 @@ class Dbmanager {
 
   async setQuantity ({ entityId, quantity }) {
     return this.client.query(/* sql */`
-      UPDATE "classifieds"
+      UPDATE classifieds
       SET quantity = $2
       WHERE id = $1;
     `, [entityId, quantity]);
@@ -273,7 +295,7 @@ class Dbmanager {
 
   async setPaymentState ({ transactionId, state }) {
     return (await this.client.query(/* sql */`
-      UPDATE "user_payments"
+      UPDATE user_payments
       SET state = $2
       WHERE transaction_id = $1
       RETURNING id
@@ -282,7 +304,7 @@ class Dbmanager {
 
   async stopSession (userId) {
     return this.client.query(/* sql */`
-      UPDATE "sessions"
+      UPDATE sessions
       SET logged = false
       WHERE user_id = $1
     `, [userId]);
@@ -291,129 +313,129 @@ class Dbmanager {
   async createTables () {
     return this.client.query(/* sql */ `
       BEGIN;
-      CREATE TABLE IF NOT EXISTS "users" (
-      "id" SERIAL PRIMARY KEY,
-      "username" text,
-      "password" text,
-      "email" text UNIQUE,
-      "gender" text,
-      "api_key" text UNIQUE,
-      "created_at" timestamp DEFAULT NOW(),
-      "deleted_at" timestamp DEFAULT NULL
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username text,
+        password text,
+        email text UNIQUE,
+        gender text,
+        api_key text UNIQUE,
+        created_at timestamp DEFAULT NOW(),
+        deleted_at timestamp DEFAULT NULL
       );
-      CREATE TABLE IF NOT EXISTS "classifieds" (
-      "id" SERIAL PRIMARY KEY,
-      "entity_id" text UNIQUE,
-      "creator_id" int NOT NULL REFERENCES "users" ("id"),
-      "title" text,
-      "description" text,
-      "picture" bytea,
-      "status" text DEFAULT 'open',
-      "price" NUMERIC,
-      "quantity" int,
-      "created_at" date DEFAULT NOW(),
-      "closed_at" date DEFAULT NULL
-      );
-      
-      CREATE TABLE IF NOT EXISTS "comments" (
-      "id" SERIAL PRIMARY KEY,
-      "user_id" int NOT NULL REFERENCES "users" ("id"),
-      "classified_entity" text NOT NULL REFERENCES "classifieds" ("entity_id"),
-      "body" text,
-      "created_at" timestamp DEFAULT NOW(),
-      "deleted" timestamp DEFAULT null 
+      CREATE TABLE IF NOT EXISTS classifieds (
+        id SERIAL PRIMARY KEY,
+        entity_id text UNIQUE,
+        creator_id int NOT NULL REFERENCES users (id),
+        title text,
+        description text,
+        picture bytea,
+        status text DEFAULT 'open',
+        price NUMERIC,
+        quantity int,
+        created_at date DEFAULT NOW(),
+        closed_at date DEFAULT NULL
       );
       
-      CREATE TABLE IF NOT EXISTS "promotion_transactions" (
-      "id" SERIAL PRIMARY KEY,
-      "transaction_id" TEXT UNIQUE NOT NULL,
-      "state" TEXT NOT NULL,
-      "sender_id" int NOT NULL REFERENCES "users" ("id"),
-      "created_at" timestamp DEFAULT NOW(),
-      "payer_id" TEXT,
-      "token" TEXT,
-      "amount" NUMERIC NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS "user_transactions"(
-      "id" SERIAL PRIMARY KEY,
-      "sender" int NOT NULL REFERENCES "users" ("id"),
-      "recipant" int NOT NULL REFERENCES "users" ("id"),
-      "approved_at" timestamp DEFAULT NULL,
-      "state" TEXT NOT NULL,
-      "amount" NUMERIC NOT NULL,
-      "user_payment_id" int,
-      "user_payout_id" int,
-      "created_at" timestamp DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS "user_payments"(
-      "id" SERIAL PRIMARY KEY,
-      "transaction_id" TEXT UNIQUE NOT NULL,
-      "state" TEXT NOT NULL,
-      "sender_id" int NOT NULL REFERENCES "users" ("id"),
-      "created_at" timestamp DEFAULT NOW(),
-      "payer_id" TEXT,
-      "token" TEXT,
-      "amount" NUMERIC NOT NULL,
-      "quantity" int NOT NULL,
-      "classified_entity" TEXT REFERENCES "classifieds" ("entity_id")
-      );
-      CREATE TABLE IF NOT EXISTS "user_payouts"(
-      "id" SERIAL PRIMARY KEY,
-      "transaction_id" TEXT UNIQUE NOT NULL,
-      "state" TEXT NOT NULL,
-      "recipiant" int NOT NULL REFERENCES "users" ("id"),
-      "created_at" timestamp DEFAULT NOW(),
-      "amount" NUMERIC NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS "accounts"(
-      "id" SERIAL PRIMARY KEY,
-      "user_id" int REFERENCES "users" ("id"),
-      "account_number" text NOT NULL,
-      "created_at" timestamp DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS "promotions"(
-        "id" SERIAL PRIMARY KEY,
-        "transaction_id" TEXT REFERENCES  "promotion_transactions"("transaction_id"),
-        "classified_entity" text  REFERENCES "classifieds"("entity_id"),
-        "start_date" timestamp DEFAULT NOW(),
-        "end_date" timestamp NOT NULL,
-        "status" TEXT
-      );
-      CREATE TABLE IF NOT EXISTS "operations" (
-      "id" SERIAL PRIMARY KEY,
-      "action" text
+      CREATE TABLE IF NOT EXISTS comments (
+        id SERIAL PRIMARY KEY,
+        user_id int NOT NULL REFERENCES users (id),
+        classified_entity text NOT NULL REFERENCES classifieds (entity_id),
+        body text,
+        created_at timestamp DEFAULT NOW(),
+        deleted timestamp DEFAULT null 
       );
       
-      CREATE TABLE IF NOT EXISTS "recources"  (
-      "id" SERIAL PRIMARY KEY,
-      "name" text
+      CREATE TABLE IF NOT EXISTS promotion_transactions (
+        id SERIAL PRIMARY KEY,
+        transaction_id TEXT UNIQUE NOT NULL,
+        state TEXT NOT NULL,
+        sender_id int NOT NULL REFERENCES users (id),
+        created_at timestamp DEFAULT NOW(),
+        payer_id TEXT,
+        token TEXT,
+        amount NUMERIC NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS user_transactions(
+        id SERIAL PRIMARY KEY,
+        sender int NOT NULL REFERENCES users (id),
+        recipant int NOT NULL REFERENCES users (id),
+        approved_at timestamp DEFAULT NULL,
+        state TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        user_payment_id int,
+        user_payout_id int,
+        created_at timestamp DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS user_payments(
+        id SERIAL PRIMARY KEY,
+        transaction_id TEXT UNIQUE NOT NULL,
+        state TEXT NOT NULL,
+        sender_id int NOT NULL REFERENCES users (id),
+        created_at timestamp DEFAULT NOW(),
+        payer_id TEXT,
+        token TEXT,
+        amount NUMERIC NOT NULL,
+        quantity int NOT NULL,
+        classified_entity TEXT REFERENCES classifieds (entity_id)
+      );
+      CREATE TABLE IF NOT EXISTS user_payouts(
+        id SERIAL PRIMARY KEY,
+        transaction_id TEXT UNIQUE NOT NULL,
+        state TEXT NOT NULL,
+        recipiant int NOT NULL REFERENCES users (id),
+        created_at timestamp DEFAULT NOW(),
+        amount NUMERIC NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS accounts(
+        id SERIAL PRIMARY KEY,
+        user_id int REFERENCES users (id),
+        account_number text NOT NULL,
+        created_at timestamp DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS promotions(
+        id SERIAL PRIMARY KEY,
+        transaction_id TEXT REFERENCES  promotion_transactions(transaction_id),
+        classified_entity text  REFERENCES classifieds(entity_id),
+        start_date timestamp DEFAULT NOW(),
+        end_date timestamp NOT NULL,
+        status TEXT
+      );
+      CREATE TABLE IF NOT EXISTS operations (
+        id SERIAL PRIMARY KEY,
+        action text
       );
       
-      CREATE TABLE IF NOT EXISTS "roles" (
-      "id" SERIAL PRIMARY KEY,
-      "name" text,
-      "opertionId" int NOT NULL UNIQUE REFERENCES "operations" ("id"),
-      "resourceId" int NOT NULL UNIQUE REFERENCES "recources" ("id")
+      CREATE TABLE IF NOT EXISTS recources  (
+        id SERIAL PRIMARY KEY,
+        name text
       );
       
-      CREATE TABLE IF NOT EXISTS "personels" ( 
-      "id" SERIAL PRIMARY KEY,
-      "username" text,
-      "email" text,
-      "created_at" timestamp DEFAULT NOW(),
-      "deleted_at" timestamp DEFAULT NULL,
-      "roleId" int NOT NULL REFERENCES "roles" ("id")
+      CREATE TABLE IF NOT EXISTS roles (
+        id SERIAL PRIMARY KEY,
+        name text,
+        opertionId int NOT NULL UNIQUE REFERENCES operations (id),
+        resourceId int NOT NULL UNIQUE REFERENCES recources (id)
       );
-      CREATE TABLE IF NOT EXISTS "sessions"(
-        "id" SERIAL PRIMARY KEY,
-        "user_id" int UNIQUE NOT NULL REFERENCES "users" ("id"),
-        "secret" text UNIQUE,
-        "logged" boolean,
-        "created_at" timestamp DEFAULT NOW()
+      
+      CREATE TABLE IF NOT EXISTS personels ( 
+        id SERIAL PRIMARY KEY,
+        username text,
+        email text,
+        created_at timestamp DEFAULT NOW(),
+        deleted_at timestamp DEFAULT NULL,
+        roleId int NOT NULL REFERENCES roles (id)
       );
-        DROP TRIGGER IF EXISTS updt_log on "user_transactions";
+      CREATE TABLE IF NOT EXISTS sessions(
+        id SERIAL PRIMARY KEY,
+        user_id int UNIQUE NOT NULL REFERENCES users (id),
+        secret text UNIQUE,
+        logged boolean,
+        created_at timestamp DEFAULT NOW()
+      );
+        DROP TRIGGER IF EXISTS updt_log on user_transactions;
 
       COMMIT`);
   }
 }
-module.exports = Dbmanager;
+module.exports = Db;

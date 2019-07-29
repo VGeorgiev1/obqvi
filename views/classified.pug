@@ -2,36 +2,36 @@ extends layout.pug
 block content
 	.container
 		.row
-		.col-lg-9
-			.card.mt-4
-			if c.picture
-				img.card-img-top.img-fluid(src='data:image/jpg;base64,'+ c.picture, alt='')
-			.card-body
-				h3.card-title=c.title
-				if c.price
-					h5=`Unit price: ${c.price}`
-					h5=`Quantity: ${c.quantity}`
-				p.card-text=c.description
-				button.btn.btn-outline-success.btn-rounded.btn-block.waves-effect.z-depth-0(type="button", onclick="buy()") Buy
-				if c.quantity
-					label(for="price-min") Quantiy:
-					span#quant.font-weight-bold.indigo-text(name="quantity") 0
-					.d-flex.justify-content-center.my-4
-						span.font-weight-bold.indigo-text.mr-2 0
-						input#quantity.custom-range(type="range" name="quantity" value="0" min="0" max=c.quantity)
-						span.font-weight-bold.indigo-text.mr-2=c.quantity
-				#errmsg.alert.alert-danger(role='alert', style="display:none")
-			.card.card-outline-secondary.my-4
-			.card-header
-				| Comments:
-			#comments.card-body
-				if comments
-					each com,idx in comments
-						.cm
-							p=com.body
-							small.text-muted=`Posted by ${com.username} on ${com.comment_date}`
-							hr
-				if auth
-					input#comment.mb-2.form-control(type="text", name="comment")
-					button.btn.btn-success(href='#', onclick="submitComment()") Leave a comment
-					script(src="/js/buy.js")
+			.col-lg-9
+				.card.mt-4
+				if c.picture
+					img.card-img-top.img-fluid(src='data:image/jpg;base64,'+ c.picture, alt='')
+				.card-body
+					h3.card-title=c.title
+					if c.price
+						h5=`Unit price: ${c.price}`
+						h5=`Quantity: ${c.quantity}`
+					p.card-text=c.description
+					button.btn.btn-outline-success.btn-rounded.btn-block.waves-effect.z-depth-0(type="button", onclick=`buy('${c.entity_id}')`) Buy
+					if c.quantity
+						label(for="price-min") Quantiy:
+						span#quant.font-weight-bold.indigo-text(name="quantity") 0
+						.d-flex.justify-content-center.my-4
+							span.font-weight-bold.indigo-text.mr-2 0
+							input#quantity.custom-range(type="range" name="quantity" value="0" min="0" max=c.quantity)
+							span.font-weight-bold.indigo-text.mr-2=c.quantity
+					#errmsg.alert.alert-danger(role='alert', style="display:none")
+				.card.card-outline-secondary.my-4
+				.card-header
+					| Comments:
+				#comments.card-body
+					if comments
+						each com,idx in comments
+							.cm
+								p=com.body
+								small.text-muted=`Posted by ${com.username} on ${com.comment_date}`
+								hr
+					if auth
+						input#comment.mb-2.form-control(type="text", name="comment")
+						button.btn.btn-success(href='#', onclick=`submitComment('${c.entity_id}')`) Leave a comment
+						script(src="/js/buy.js")

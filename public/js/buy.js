@@ -3,11 +3,11 @@
 function showInput () {
   $('#comment').show();
 }
-function submitComment () {
+function submitComment (id) {
   $.ajax({
     method: 'POST',
     url: '/comment/new',
-    data: { comment: $('#comment').val(), entity: '#{c.entity_id}' }
+    data: { comment: $('#comment').val(), entity: id }
   }).then((res) => {
     location.reload();
   });
@@ -15,11 +15,11 @@ function submitComment () {
 $('#quantity').change((e) => {
   $('#quant').html(`${$('#quantity').val()}`);
 });
-function buy () {
+function buy (id) {
   $('#errmsg').hide();
   $.ajax({
     method: 'POST',
-    url: '/buy/#{c.entity_id}',
+    url: `/buy/${id}`,
     data: { quantity: $('#quantity').val() }
   }).then((res) => {
     if (res.error) {

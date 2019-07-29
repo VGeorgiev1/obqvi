@@ -1,6 +1,6 @@
 
 class RPCValidator {
-  constructor (methods, dbManager) {
+  constructor (methods, db) {
     this.errorCodes = [
       { error: { message: 'Parse error!', code: -32700 }, http_status: 500 },
       { error: { message: 'Invalid Request', code: -32600 }, http_status: 400 },
@@ -10,7 +10,7 @@ class RPCValidator {
       { message: 'Valid', http_status: 200 }
     ];
     this.methods = methods;
-    this.dbManager = dbManager;
+    this.db = db;
   }
 
   async validateJSON (obj) {
@@ -34,7 +34,7 @@ class RPCValidator {
 
   async validateApiKey (apiKey) {
     try {
-      const user = (await this.dbManager.getUserByAPI(apiKey));
+      const user = (await this.db.getUserByAPI(apiKey));
       if (!user) {
         return this.errorCodes[1];
       }
@@ -61,6 +61,7 @@ class RPCValidator {
             return this.errorCodes[3];
           }
         } else {
+          // eslint-disable-next-line valid-typeof
           if (typeof obj.params[prop] !== type) {
             return this.errorCodes[3];
           }
