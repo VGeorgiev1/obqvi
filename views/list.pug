@@ -2,8 +2,10 @@ extends layout.pug
 mixin card(classified)
 	.card.border-dark(style="max-width: 12rem;")
 		.card-header.bg-light.text-center
-			a(href="/classified/" + classified.c_id)
+			a(href="/classified/" + classified.entity_id)
 				button(class="btn",style="font-size:25px").text-primary.card-title=classified.title
+		.card-body
+			p.card-text=classified.description
 		if classified.picture
 			img.card-img-bottom(src='data:image/jpg;base64,' + classified.picture, alt="Card image")
 block content
@@ -12,9 +14,9 @@ block content
 		.row
 			.col-lg-3
 				.list-group
-					a.list-group-item.active(href='#') Category 1
-					a.list-group-item(href='#') Category 2
-					a.list-group-item(href='#') Category 3
+					a.list-group-item(class=(type == 'transport' ? 'active' : ''), href='/list/transport/1') Transport
+					a.list-group-item(class=(type == 'stock' ? 'active' : ''), href='/list/stock/1') Stocks
+					a.list-group-item(class=(type == 'other' ? 'active' : ''), href='/list/other/1') Other
 			.col-sm-8
 				each row,idx in classifieds
 					.row.mb-4
@@ -24,42 +26,17 @@ block content
 		.row
 			nav.mx-auto(aria-label='Page navigation example')
 				ul.pagination
-					if +page - 1 > 0
+					each numb in pages
+						if numb == 0
+							li.page-item.active
+								a.page-link(href=`/list/${type}/${page}`)=+page
+						if numb < 0 && +page + (+numb) > 0
+							li.page-item
+								a.page-link(href=`/list/${type}/${+page + numb}`)= (numb <= -10 ? '...': +page + numb)
+						if numb > 0 && +page + (+numb) < maxPage
+							li.page-item
+								a.page-link(href=`/list/${type}/${+page + numb}`)= (numb >= 10 ? '...': +page + numb)
+					if maxPage > 1
 						li.page-item
-							a.page-link(href=`/list/${+page - 1}`, aria-label='Previous')
-								span(aria-hidden='true') «
-								span.sr-only Previous
-					if +page - 10 > 0
-						li.page-item
-							a.page-link(href=`/list/${+page - 10}`)="..."
-					if +page - 3 > 0
-						li.page-item
-							a.page-link(href=`/list/${+page - 3}`)=+page - 3
-					if +page - 2 > 0
-						li.page-item
-							a.page-link(href=`/list/${+page - 2}`)=+page - 2
-					if +page - 1 > 0
-						li.page-item
-							a.page-link(href=`/list/${+page - 1}`)=+page - 1
-					li.page-item.active
-						a.page-link(href=`/list/${+page}`)=+page
-					if +page + 1 <= +maxPage
-						li.page-item
-							a.page-link(href=`/list/${+page + 1}`)=+page + 1
-					if +page + 2 < +maxPage
-						li.page-item
-							a.page-link(href=`/list/${+page + 2}`)=+page + 2
-					if +page + 3 < +maxPage
-						li.page-item
-							a.page-link(href=`/list/${+page + 3}`)=+page + 3
-					if + page + 10 < +maxPage
-						li.page-item
-							a.page-link(href=`/list/${+page + 10}`)="..."	
-					if +page + 1 <= +maxPage
-						li.page-item
-							a.page-link(href=`/list/${+page + 1}`, aria-label='Next')
-								span(aria-hidden='true') »
-								span.sr-only Next
-						li.page-item
-							a.page-link(href=`/list/${+maxPage}`)=maxPage	
+							a.page-link(href=`/list/${type}/${+maxPage}`)=maxPage	
 

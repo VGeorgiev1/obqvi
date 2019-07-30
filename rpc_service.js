@@ -19,12 +19,20 @@ class RPC {
           return db.getClassified(obj.classified_id);
         }
       },
+      getMyClassifieds: {
+        params: {
+        },
+        method: async (obj) => {
+          return db.getUserClassfieds(obj.userId);
+        }
+      },
       createClassified: {
         params: {
           title: { type: 'string', required: true },
           description: { type: 'string', required: true },
           quantity: { type: 'number' },
           price: { type: 'number' },
+          type: { type: 'string' },
           picture: { type: Buffer }
         },
         method: async (obj) => {
@@ -88,7 +96,6 @@ class RPC {
       return this.reject(validJsonRes);
     }
     const validApiKeyRes = await this.validator.validateApiKey(obj.params.api_key);
-
     if (validApiKeyRes.error) {
       return this.reject(validApiKeyRes);
     }
@@ -102,7 +109,8 @@ class RPC {
         const result = await deffered(obj.params);
         return this.response({ id: obj.id, message: result });
       } catch (e) {
-        return this.reject(this.validator.errorCodes[4]);
+        console.log(e);
+        return this.reject(this.validator.errorCodes['INTERNAL_ERROR']);
       }
     } else {
       return this.reject(res);

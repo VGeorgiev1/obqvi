@@ -12,16 +12,6 @@ class Db {
     });
     this.errorHandler = errorHandler;
     this.client.connect();
-    // for(let fn of Object.getOwnPropertyNames(Dbmanager.prototype).filter(f=>f != 'constructor')){
-    //   let deffered = this[fn].bind(this)
-    //   this[fn] = async (obj) => {
-    //     try{
-    //       return (await deffered(obj))
-    //     }catch(e){
-    //       console.log(e)
-    //     }
-    //   };
-    // }
   }
 
   async tx (callback) {
@@ -54,12 +44,16 @@ class Db {
 
   async getUserClassfieds (userId) {
     return (await this.client.query(/* sql */`
-      SELECT cl.id,cl.status, cl.entity_id, cl.title FROM classifieds as cl
+      SELECT
+      cl.id,
+      cl.status,
+      cl.entity_id,
+      cl.title
+      FROM classifieds as cl
       LEFT JOIN promotions as p ON p.classified_entity = cl.entity_id
-      WHERE creator_id = $1 AND p.status IS NULL AND cl.closed_at IS NULL; 
-    `, [userId])).rows;
+      WHERE creator_id = $1 AND p.status IS NULL AND cl.closed_at IS NULL;
+      `, [userId])).rows;
   }
-
 
   async getUser (userId) {
     return (await this.client.query(/* sql */`
@@ -70,7 +64,13 @@ class Db {
 
   async getShipments (userId) {
     return (await this.client.query(/* sql */`
-      SELECT c.title,c.entity_id ,up.transaction_id, up.quantity, up.amount FROM user_transactions as ut
+      SELECT 
+      c.title,
+      c.entity_id,
+      up.transaction_id, 
+      up.quantity, 
+      up.amount
+      FROM user_transactions as ut
       INNER JOIN user_payments as up ON ut.user_payment_id = up.id
       INNER JOIN classifieds as c ON c.entity_id = up.classified_entity
       WHERE ut.recipant = $1 AND ut.state != 'order_completed'
@@ -107,6 +107,9 @@ class Db {
   }
 
   async prepareTransaction ({ paymentId, token, PayerID }) {
+    console.log(paymentId)
+    console.log(token)
+    console.log(PayerID);
     return this.client.query(/* sql */`
       UPDATE promotion_transactions
       SET payer_id = $1,
@@ -133,9 +136,10 @@ class Db {
 
   async getPromotions (transactionId) {
     return (await this.client.query(/* sql */`
-      SELECT * FROM promotions
-      WHERE transaction_id = $1 AND status = 'awaiting_auth'
-    `, [transactionId])).rows[0];
+      SELECT * FROM promotions as p
+      INNER JOIN classifieds as c on c.entity_id = p.classified_entity 
+      WHERE transaction_id = $1
+    `, [transactionId])).rows;
   }
 
   async findTransaction (transactionId) {
@@ -184,11 +188,32 @@ class Db {
 
   async getJoinedClassified (entityId) {
     return (await this.client.query(/* sql */`
-      SELECT cl.price,cl.entity_id, cl.title, cl.description, cl.quantity, cl.created_at as classified_date, c.created_at as comment_date, c.body,c.user_id,u.username,cl.picture FROM classifieds cl
+      SELECT 
+      cl.price,
+      cl.entity_id,
+      cl.title, 
+      cl.description, 
+      cl.quantity, 
+      cl.created_at as classified_date, 
+      c.created_at as comment_date, 
+      c.body,
+      c.user_id,
+      u.username,
+      cl.picture FROM classifieds cl
       LEFT JOIN comments c on c.classified_entity = cl.entity_id
       LEFT JOIN users as u ON u.id = c.user_id
       WHERE cl.entity_id = $1 AND closed_at IS NULL
     `, [entityId])).rows;
+  }
+
+  async getClassifiedsByType (type, offset, limit) {
+    return (await this.client.query(/* sql */`
+      SELECT COUNT(*) OVER (), c.*, u.*, p.status as st FROM classifieds c
+      LEFT JOIN promotions as p ON p.classified_entity = c.entity_id
+      INNER JOIN users u ON u.id = c.creator_id
+      WHERE type = $1 AND c.closed_at IS NULL
+      LIMIT $3 OFFSET $2
+    `, [type, offset, limit])).rows;
   }
 
   async getClassified (entityId) {
@@ -205,16 +230,16 @@ class Db {
     `, [userId, classifiedsEntity, body]);
   }
 
-  async createClassified ({ title, entityId, userId, description, picture, price, quantity }) {
+  async createClassified ({ title, entityId, userId, description, picture, price, quantity, type }) {
     // eslint-disable-next-line no-return-await
     return (await this.client.query(/* sql */`
-      INSERT INTO classifieds (title,creator_id,description,picture,price,quantity, entity_id)
-      VALUES($1,$2,$3,$4,$5, $6,$7)
+      INSERT INTO classifieds (title,creator_id,description,picture,price,quantity, entity_id, type)
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING entity_id
-    `, [title, userId, description, picture, price, quantity, entityId])).rows[0];
+    `, [title, userId, description, picture, price, quantity, entityId, type])).rows[0];
   }
 
-  async updateClassified ({entityId, title, description, price, quantity, picture, userId }) {
+  async updateClassified ({ entityId, title, description, price, quantity, picture, userId }) {
     return this.client.query(/* sql */`
       UPDATE classifieds SET
         title = COALESCE($2, title),
@@ -234,11 +259,22 @@ class Db {
     `, [entityId]);
   }
 
-  async getClassfiedPromotion (offset, limit) {
+  async getPromotedClassifieds (offset, limit) {
     return (await this.client.query(/* sql */`
-      SELECT DISTINCT c.entity_id as c_id,c.created_at,u.id,c.title,c.description,c.picture,c.quantity,u.username,u.email,p.status FROM classifieds as c
+      SELECT DISTINCT 
+      c.entity_id,
+      c.created_at,
+      u.id,
+      c.title,
+      c.description,
+      c.picture,
+      c.quantity,
+      u.username,
+      u.email,
+      p.status
+      FROM classifieds as c
       INNER JOIN users u ON u.id = c.creator_id
-      LEFT JOIN promotions p ON p.classified_entity = c.entity_id
+      INNER JOIN promotions p ON p.classified_entity = c.entity_id
       WHERE c.closed_at IS NULL
       ORDER BY c.created_at DESC
       LIMIT $2 OFFSET $1
@@ -253,7 +289,13 @@ class Db {
 
   async getPayment ({ transactionId, userId }) {
     return (await this.client.query(/* sql */`
-      SELECT up.id, up.transaction_id, c.quantity,up.quantity as order_quantity , up.classified_entity FROM user_payments as up
+      SELECT 
+      up.id, 
+      up.transaction_id, 
+      c.quantity,
+      up.quantity as order_quantity,
+      up.classified_entity
+      FROM user_payments as up
       INNER JOIN user_transactions ut ON up.id = ut.user_payment_id
       INNER JOIN classifieds c ON c.entity_id = up.classified_entity
       WHERE up.transaction_id = $1 AND ut.recipant = $2;
@@ -318,6 +360,14 @@ class Db {
     `, [userId]);
   }
 
+  async createIndexes () {
+    return this.client.query(/* sql */`
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS trgm_idx
+      ON classifieds
+      USING gin (type gin_trgm_ops);
+    `);
+  }
+
   async createTables () {
     return this.client.query(/* sql */ `
       BEGIN;
@@ -341,6 +391,7 @@ class Db {
         status text DEFAULT 'open',
         price NUMERIC,
         quantity int,
+        type text,
         created_at date DEFAULT NOW(),
         closed_at date DEFAULT NULL
       );
@@ -441,9 +492,8 @@ class Db {
         logged boolean,
         created_at timestamp DEFAULT NOW()
       );
-        DROP TRIGGER IF EXISTS updt_log on user_transactions;
-
-      COMMIT`);
+      DROP TRIGGER IF EXISTS updt_log on user_transactions;
+      COMMIT;`);
   }
 }
 module.exports = Db;

@@ -16,13 +16,13 @@ class RPCValidator {
   async validateJSON (obj) {
     try {
       JSON.stringify(obj);
-      if (!obj.jsonrpc ||
-          obj.jsonrpc !== '2.0' ||
-          !obj.method ||
+      if (obj.jsonrpc !== '2.0' ||
           !this.methods[obj.method] ||
           !obj.params ||
           !obj.params.api_key ||
-          !obj.id) {
+          !obj.id ||
+          (typeof obj.params !== 'object') ||
+          (typeof obj.id !== 'number')) {
         return this.errorCodes['INVALID_REQUEST'];
       } else {
         return this.errorCodes['OK'];
@@ -35,6 +35,7 @@ class RPCValidator {
   async validateApiKey (apiKey) {
     try {
       const user = (await this.db.getUserByAPI(apiKey));
+      
       if (!user) {
         return this.errorCodes['INVALID_REQUEST'];
       }

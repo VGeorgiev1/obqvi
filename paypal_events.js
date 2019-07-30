@@ -6,7 +6,7 @@ module.exports = {
         return;
         // todo
       }
-      const payerId = r.payerId;
+      const payerId = r.payer_id;
       const transactionId = r.transaction_id;
       const total = resource.transactions[0].amount.total;
       db.tx(async () => {
@@ -21,7 +21,7 @@ module.exports = {
         if (!r) {
           return;
         }
-        const payerId = r.payerId;
+        const payerId = r.payer_id;
         const transactionId = r.transaction_id;
         const total = resource.transactions[0].amount.total;
         await paypal.execute({ transactionId, payerId, total });
@@ -34,6 +34,7 @@ module.exports = {
     if (auth.state !== 'captured') {
       db.tx(async () => {
         await paypal.capturePayment({ transactionId: resource.id, total: resource.amount.total });
+        console.log('Payment captured!');
         await db.setTransactionState({ transactionId, state: 'completed' });
         await db.setPromotionStatus({ transactionId, state: 'authorized' });
       });

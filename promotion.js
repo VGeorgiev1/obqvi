@@ -35,6 +35,7 @@ class Promotion {
       userId,
       amount: Number(transaction.transactions[0].amount.total)
     };
+    
     await this.db.createTransaction(tr);
     const promises = [];
     // await this.db.getTransaction(transaction.id)

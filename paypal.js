@@ -64,14 +64,14 @@ class Paypal {
     });
   }
 
-  execute ({ transactionId, payerId, amount }) {
+  execute ({ transactionId, payerId, total }) {
     return new Promise((resolve, reject) => {
       const executePaymentJson = {
         payer_id: payerId,
         transactions: [{
           amount: {
             currency: 'USD',
-            total: amount
+            total: total
           }
         }]
       };
@@ -99,11 +99,11 @@ class Paypal {
     });
   }
 
-  capturePayment ({ transactionId, amount }) {
+  capturePayment ({ transactionId, total }) {
     return new Promise((resolve, reject) => {
-      paypal.authorization.capture(transactionId, { amount: { total: amount, currency: 'USD' }, is_final_capture: true }, (err, auth) => {
+      paypal.authorization.capture(transactionId, { amount: { total: total, currency: 'USD' }, is_final_capture: true }, (err, auth) => {
         if (err) {
-          console.log(err.response);
+          console.log(err);
           reject(err);
         } else {
           resolve(auth);

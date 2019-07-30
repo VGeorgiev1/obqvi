@@ -1,3 +1,4 @@
+/* eslint-disable no-return-assign */
 const express = require('express');
 const bodyParser = require('body-parser');
 const fileUpload = require('express-fileupload');
@@ -5,7 +6,7 @@ const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const sharp = require('sharp');
 
-const host = 'https://e70f28bd.ngrok.io';
+const host = 'https://8b6befd0.ngrok.io';
 const assert = require('./assert');
 
 const PROMOTION = require('./promotion');
@@ -63,11 +64,11 @@ app.get('/shipments/my', loginware, wrapper(async (req, res) => {
   res.render('shipments', { classifieds: rows.rows, auth: req.authenticated });
 }));
 
-app.get('/promo/success', loginware, wrapper(async (req, res) => {
+app.get('/promo/success', wrapper(async (req, res) => {
   await db.prepareTransaction(req.query);
   const promotions = await db.getPromotions(req.query.paymentId);
   assert(promotions !== undefined, 'Promotion is undefined');
-  res.render('promo_success', { classifieds: promotions, auth: req.authenticated });  
+  res.render('promo_success', { classifieds: promotions, auth: req.authenticated });
 }));
 
 app.get('/buy/success', loginware, wrapper(async (req, res) => {
@@ -79,7 +80,7 @@ app.get('/buy/success', loginware, wrapper(async (req, res) => {
 }));
 
 app.get('/', wrapper((req, res) => {
-  res.redirect('/list/1');
+  res.redirect('/list/promoted/1');
 }));
 
 app.post('/rpc', wrapper(async (req, res) => {
@@ -92,7 +93,7 @@ app.post('/rpc', wrapper(async (req, res) => {
   }
 }));
 
-app.post('/confrim', loginware, wrapper(async (req, res) => {
+app.post('/confrim', wrapper(async (req, res) => {
   if (paypal.events[req.body.event_type]) {
     paypal.events[req.body.event_type](db, paypal, req.body.resource);
   }
@@ -116,12 +117,11 @@ app.post('/calculate', loginware, wrapper((req, res) => {
 app.get('/profile', loginware, wrapper(async (req, res) => {
   const user = await db.getUser(req.userId);
   assert(user !== undefined, 'user is undefined');
-  console.log(user);
   res.render('profile', { profile: user, auth: req.authenticated });
 }));
 
 app.get('/register', wrapper((req, res) => {
-  if (req.authenticated) { res.redirect('/list'); }
+  if (req.authenticated) { res.redirect('/list/promoted/1'); }
   res.render('register', { auth: req.authenticated });
 }));
 
@@ -240,6 +240,7 @@ app.post('/ship', loginware, wrapper(async (req, res) => {
 }));
 
 app.get('/classified/:id', loginware, wrapper(async (req, res) => {
+  
   const classified = await db.getJoinedClassified(req.params.id);
   assert(classified !== undefined, 'classified are not defined');
   if (classified[0].picture) {
@@ -250,11 +251,11 @@ app.get('/classified/:id', loginware, wrapper(async (req, res) => {
 app.get('/logout', loginware, wrapper(async (req, res) => {
   await db.stopSession(req.userId);
   res.clearCookie('sessionToken');
-  res.redirect('/list');
+  res.redirect('/list/promoted/1');
 }));
 
 app.get('/login', wrapper((req, res) => {
-  if (req.authenticated) { res.redirect('/list'); return; }
+  if (req.authenticated) { res.redirect('/list/promoted/1'); return; }
   res.render('login', { auth: req.authenticated });
 }));
 
@@ -264,52 +265,74 @@ app.post('/classified', loginware, wrapper(async (req, res) => {
       res.render('create', { error: prop + ' can not be empty', auth: req.authenticated });
     }
   }
-
   req.body.userId = req.userId;
-  req.body.picture = req.files.picture.data;
-  req.body.picture = await sharp(req.body.picture).resize(500, 500).toBuffer();
+  if (req.files) {
+    req.body.picture = req.files.picture.data;
+    req.body.picture = await sharp(req.body.picture).resize(500, 500).toBuffer();
+  }
   req.body.entityId = crypto.randomBytes(10).toString('hex');
   await db.createClassified(req.body);
-  res.redirect('/list/1');
+  res.redirect(`/list/${req.body.type}/1`);
 }));
 
 app.post('/login', wrapper(async (req, res) => {
   const status = await db.authenticateUser({ username: req.body.name, password: req.body.password });
- 
+
   if (!status.authenticated) {
     res.render('login', { error: status.message, auth: req.authenticated });
     return;
   }
   const secret = crypto.randomBytes(30).toString('hex');
   await db.login({ userId: status.user.id, secret });
-  res.cookie('sessionToken', secret).redirect('/list');
+  res.cookie('sessionToken', secret).redirect('/list/promoted/1');
 }));
+app.get('/list/:type/:id', loginware, wrapper(async (req, res) => {
+  assert(req.params.id !== undefined);
+  assert(+req.params.id >= 1, 'page not correct');
+  assert(req.params.type !== undefined);
 
-app.get('/list/:id', loginware, wrapper(async (req, res) => {
-  assert(req.params.id >= 1, 'page not correct'); 
-  const promotions = await db.getClassfiedPromotion((req.params.id - 1) * 30, 30);
-  const rowCount = +(await db.getClassifiedCount());
-  assert(promotion !== undefined, 'promotions are undefined!');
-  assert(rowCount !== undefined, 'row count is undefined');
-  assert(typeof rowCount === 'number', 'row count is not a number');
-
-  promotions.sort((a, b) => {
-    if (a.status === 'authorized') {
-      return 1;
-    } else if (b.status === 'authorized') {
-      return -1;
-    }
-  });
-  promotions.filter(r => r.picture).map(r => r.picture = Buffer.from(r.picture).toString('base64'));
-  const formatted = OneDToTwoD(promotions, 3);
-  res.render('list', { classifieds: formatted, auth: req.authenticated, page: req.params.id, maxPage: Math.ceil(rowCount / 30) });
+  let classifieds = null;
+  let rowCount = null;
+  if (req.params.type !== 'promoted') {
+    classifieds = await db.getClassifiedsByType(req.params.type, (req.params.id - 1) * 30, 30);
+    console.log(classifieds.filter(c => c.st == 'authorized').length);
+    
+    classifieds.sort((a, b) => {
+      if (a.status === 'authorized') {
+        return 1;
+      } else if (b.status === 'authorized') {
+        return -1;
+      }
+    });
+  } else {
+    classifieds = await db.getPromotedClassifieds((req.params.id - 1) * 30, 30);
+    console.log(classifieds)
+  }
+  if (classifieds[0]) {
+    rowCount = +classifieds[0].count;
+  }
+  classifieds.filter(c => c.picture).map(c => c.picture = Buffer.from(c.picture).toString('base64'));
+  classifieds.filter(c => c.description.length > 50).map(c => c.description = c.description.substring(0, 50) + '...');
+  const formatted = OneDToTwoD(classifieds, 3);
+  const templateObj = {
+    classifieds: formatted,
+    auth: req.authenticated,
+    page: req.params.id,
+    maxPage: Math.ceil(rowCount / 30),
+    type: req.params.type,
+    pages: [-10, -3, -2, -1, 0, 1, 2, 3, 10]
+  };
+  res.render('list', templateObj);
 }));
 
 db.createTables()
   .then(() => {
     console.log('Tables created successful!');
-    app.listen(port, () => {
-      console.log('App working and listening on port ' + port);
+    db.createIndexes().then(() => {
+      console.log('Indexes created successful!');
+      app.listen(port, () => {
+        console.log('App working and listening on port ' + port);
+      });
     });
   });
 
