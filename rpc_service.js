@@ -7,8 +7,8 @@ class RPC {
     this.version = '2.0';
     this.db = db;
     this.promotion = promotion;
-    assert(db !== undefined, 'db instance is undefined');
-    assert(promotion !== undefined, 'promotion instance class is undefined');
+    assert(db != null, 'db instance is undefined');
+    assert(promotion != null, 'promotion instance class is undefined');
 
     this.methods = {
       getClassified: {

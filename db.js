@@ -14,7 +14,7 @@ class Db {
     this.client.connect();
   }
 
-  async tx (callback) {
+  async tx (callback, errorback) {
     try {
       await this.client.query('BEGIN');
       try {
@@ -22,9 +22,11 @@ class Db {
         this.client.query('COMMIT');
       } catch (e) {
         this.client.query('ROLLBACK');
+        errorback(e);
       }
     } catch (e) {
       this.client.query('ROLLBACK');
+      errorback(e);
     }
   }
 
@@ -65,56 +67,66 @@ class Db {
   async getShipments (userId) {
     return (await this.client.query(/* sql */`
       SELECT 
-      c.title,
-      c.entity_id,
-      up.transaction_id, 
-      up.quantity, 
-      up.amount
+        c.title,
+        c.entity_id,
+        up.transaction_id, 
+        up.quantity, 
+        up.amount
       FROM user_transactions as ut
       INNER JOIN user_payments as up ON ut.user_payment_id = up.id
       INNER JOIN classifieds as c ON c.entity_id = up.classified_entity
-      WHERE ut.recipant = $1 AND ut.state != 'order_completed'
-    `, [userId])).rows[0];
+      WHERE ut.recipant = $1 
+        AND ut.state = 'order_placed'
+    `, [userId])).rows;
   }
 
   async authenticateUser ({ username, password }) {
-    console.log(username);
-    console.log(password);
     const res = await this.client.query(/* sql */`
-      SELECT * FROM users WHERE username = $1
+      SELECT * 
+      FROM users 
+      WHERE username = $1
     `, [username]);
+
     if (!res.rows[0]) {
       return { authenticated: false, message: 'Wrong username!' };
     }
+
     const equal = await bcrypt.compare(password, res.rows[0].password);
+
     if (!equal) {
       return { authenticated: false, message: 'Wrong password!' };
     }
+
     return ({ authenticated: true, message: '', user: res.rows[0] });
   }
 
   async getTransaction (transactionId) {
     return this.client.query(/* sql */`
-      SELeCT * FROM promotion_transactions
+
+      SELECT * 
+      FROM promotion_transactions
       WHERE transaction_id = $1
+
     `, [transactionId]);
   }
 
   async createTransaction ({ transactionId, state, userId, amount }) {
     return this.client.query(/* sql */`
-      INSERT INTO promotion_transactions(transaction_id, state,sender_id, amount) VALUES($1,$2,$3,$4)
+      INSERT INTO promotion_transactions(transaction_id, state, sender_id, amount) VALUES($1,$2,$3,$4)
     `, [transactionId, state, userId, amount]);
   }
 
   async prepareTransaction ({ paymentId, token, PayerID }) {
-    console.log(paymentId)
-    console.log(token)
+    console.log(paymentId);
+    console.log(token);
     console.log(PayerID);
     return this.client.query(/* sql */`
+      
       UPDATE promotion_transactions
       SET payer_id = $1,
-      token = $2
-      WHERE transaction_id = $3; 
+        token = $2
+      WHERE transaction_id = $3
+
     `, [PayerID, token, paymentId]);
   }
 
@@ -151,7 +163,8 @@ class Db {
 
   async findUserPayment (transactionId) {
     return (await this.client.query(/* sql */`
-      SELECT * FROM user_payments
+      SELECT * 
+      FROM user_payments
       WHERE transaction_id = $1
     `, [transactionId])).rows[0];
   }
@@ -199,11 +212,12 @@ class Db {
       c.body,
       c.user_id,
       u.username,
-      cl.picture FROM classifieds cl
+      cl.picture 
+      FROM classifieds cl
       LEFT JOIN comments c on c.classified_entity = cl.entity_id
       LEFT JOIN users as u ON u.id = c.user_id
       WHERE cl.entity_id = $1 AND closed_at IS NULL
-    `, [entityId])).rows;
+    `, [entityId])).rows[0];
   }
 
   async getClassifiedsByType (type, offset, limit) {
@@ -291,7 +305,7 @@ class Db {
     return (await this.client.query(/* sql */`
       SELECT 
       up.id, 
-      up.transaction_id, 
+      up.transaction_id,
       c.quantity,
       up.quantity as order_quantity,
       up.classified_entity
@@ -316,11 +330,11 @@ class Db {
     return this.client.query(/* sql */`
       UPDATE user_transactions
       SET state = $2
-      WHERE id = $1;
+      WHERE user_payment_id = $1;
     `, [id, state]);
   }
 
-  async reateUserTransaction ({ userPaymentId, from, to, state, amount }) {
+  async createUserTransaction ({ userPaymentId, from, to, state, amount }) {
     return this.client.query(/* sql */`
       INSERT INTO user_transactions(user_payment_id,sender,recipant,state,amount)
       VALUES($1,$2,$3,$4,$5)
@@ -336,10 +350,12 @@ class Db {
   }
 
   async setQuantity ({ entityId, quantity }) {
+    console.log(quantity);
+    console.log(entityId);
     return this.client.query(/* sql */`
       UPDATE classifieds
       SET quantity = $2
-      WHERE id = $1;
+      WHERE entity_id = $1;
     `, [entityId, quantity]);
   }
 
@@ -349,7 +365,7 @@ class Db {
       SET state = $2
       WHERE transaction_id = $1
       RETURNING id
-  `, [transactionId, state])).rows[0];
+  `, [transactionId, state])).rows[0].id;
   }
 
   async stopSession (userId) {
@@ -492,7 +508,24 @@ class Db {
         logged boolean,
         created_at timestamp DEFAULT NOW()
       );
-      DROP TRIGGER IF EXISTS updt_log on user_transactions;
+
+      DROP TRIGGER IF EXISTS upt_cls_quant ON classifieds;
+
+      CREATE OR REPLACE FUNCTION upt_cls()
+        RETURNS trigger AS $$
+      BEGIN
+        IF NEW.quantity = 0 THEN
+          UPDATE classifieds SET closed_at = NOW()
+          WHERE id = NEW.id;
+        END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql;
+
+      CREATE TRIGGER upt_cls_quant
+        AFTER UPDATE OF quantity
+        ON classifieds
+        FOR EACH ROW
+        EXECUTE PROCEDURE upt_cls();
       COMMIT;`);
   }
 }

@@ -1,4 +1,3 @@
-/* eslint-disable no-return-assign */
 const express = require('express');
 const bodyParser = require('body-parser');
 const fileUpload = require('express-fileupload');
@@ -6,24 +5,27 @@ const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const sharp = require('sharp');
 
-const host = 'https://8b6befd0.ngrok.io';
+const host = 'https://d86bff45.ngrok.io';
 const assert = require('./assert');
 
-const PROMOTION = require('./promotion');
-const RPC = require('./rpc_service');
-const DB = require('./db');
-const PAYPAL = require('./paypal');
+const Promotion = require('./promotion');
+const Rpc = require('./rpc_service');
+const Db = require('./db');
+const Paypal = require('./paypal');
+const Buy = require('./buy');
 
-const db = new DB();
-const paypal = new PAYPAL('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET);
-const promotion = new PROMOTION(paypal, db, host);
-const rpc = new RPC(db, promotion);
+const db = new Db();
+const paypal = new Paypal('sandbox', process.env.PAYPAL_KEY, process.env.PAYPAL_SECRET);
+const promotion = new Promotion(paypal, db, host);
+const rpc = new Rpc(db, promotion);
+const buy = new Buy(db, paypal, host);
 
 const app = express();
 const port = 3000;
 
-app.use(express.static('public'));
 app.set('view engine', 'pug');
+
+app.use(express.static('public'));
 app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -37,45 +39,56 @@ const wrapper = fn => async (req, res, next) => {
     res.render('general_error', { error: 'Something went wrong please try again later' });
   }
 };
+
 const loginware = wrapper(async (req, res, next) => {
   if (!req.cookies.sessionToken) {
     res.redirect('/login');
     return;
   }
-  const ses = await db.getSession(req.cookies.sessionToken);
-  if (!ses) {
+  const sess = await db.getSession(req.cookies.sessionToken);
+  if (!sess) {
     res.redirect('/login');
     return;
   }
   req.authenticated = true;
-  req.userId = ses.user_id;
+  req.userId = sess.user_id;
   next();
 });
 
 app.get('/promo', loginware, wrapper(async (req, res) => {
   const rows = await db.getUserClassfieds(req.userId);
-  assert(rows !== undefined, 'Ads for promos are undefined!');
+
+  assert(rows != null, 'Ads for promos are undefined!');
+
   res.render('promo', { classifieds: rows, auth: req.authenticated });
 }));
 
-app.get('/shipments/my', loginware, wrapper(async (req, res) => {
+app.get('/shipments', loginware, wrapper(async (req, res) => {
   const rows = await db.getShipments(req.userId);
-  assert(rows !== undefined, 'Shipments are undefined');
-  res.render('shipments', { classifieds: rows.rows, auth: req.authenticated });
+  assert(rows != null, 'Shipments are undefined');
+  res.render('shipments', { classifieds: rows, auth: req.authenticated });
 }));
 
 app.get('/promo/success', wrapper(async (req, res) => {
   await db.prepareTransaction(req.query);
   const promotions = await db.getPromotions(req.query.paymentId);
-  assert(promotions !== undefined, 'Promotion is undefined');
+  assert(promotions != null, 'Promotion is undefined');
   res.render('promo_success', { classifieds: promotions, auth: req.authenticated });
 }));
 
 app.get('/buy/success', loginware, wrapper(async (req, res) => {
   db.tx(async () => {
     const r = await db.prepareUserPayment(req.query);
-    await db.setUserTransactionState({ id: r.id, state: 'buyer_approved' });
+
+    await db.setUserTransactionState({
+      id: r.id,
+      state: 'buyer_approved'
+    });
+
     res.render('buy_success', { auth: req.authenticated });
+  }, (e) => {
+    console.log(e);
+    res.render('general_error', { error: 'There was a problem with your transaction. Please try again later' });
   });
 }));
 
@@ -85,7 +98,8 @@ app.get('/', wrapper((req, res) => {
 
 app.post('/rpc', wrapper(async (req, res) => {
   res.setHeader('Content-Type', 'application/json-rpc');
-  if (req.headers['content-type'] !== 'application/json' && req.headers['content-type'] !== 'application/json-rpc') {
+  if (req.headers['content-type'] !== 'application/json' &&
+   req.headers['content-type'] !== 'application/json-rpc') {
     res.send({ jsonrpc: '2.0', error: { code: -32700, message: 'Invalid Request' }, id: null });
   } else {
     const result = await rpc.execute(req.body);
@@ -116,17 +130,19 @@ app.post('/calculate', loginware, wrapper((req, res) => {
 
 app.get('/profile', loginware, wrapper(async (req, res) => {
   const user = await db.getUser(req.userId);
-  assert(user !== undefined, 'user is undefined');
+  assert(user != null, 'user is undefined');
   res.render('profile', { profile: user, auth: req.authenticated });
 }));
 
 app.get('/register', wrapper((req, res) => {
-  if (req.authenticated) { res.redirect('/list/promoted/1'); }
+  if (req.authenticated) {
+    res.redirect('/list/promoted/1');
+  }
   res.render('register', { auth: req.authenticated });
 }));
 
 app.post('/register', wrapper(async (req, res) => {
-  if (req.body.username.length !== 0 && req.body.password.length !== 0 && req.body.email.length !== 0) {
+  if (req.body.username.length > 0 && req.body.password.length !== 0 && req.body.email.length !== 0) {
     req.body.apiKey = crypto.randomBytes(30).toString('hex');
     await db.createUser(req.body);
     res.redirect('/login');
@@ -148,105 +164,38 @@ app.post('/buy/:id', loginware, wrapper(async (req, res) => {
     res.send({ error: 'Invalid quantity' });
     return;
   }
-  const classified = await db.getClassified(req.params.id);
-
-  if (quantity > classified.quantity) {
-    res.send({ error: 'Invalid quantity' });
-    return;
-  }
-  const payment = {
-    intent: 'order',
-    payer: {
-      payment_method: 'paypal'
-    },
-    redirect_urls: {
-      return_url: host + '/buy/success',
-      cancel_url: host + '/buy/error'
-    },
-    transactions: [{
-      item_list: {
-        items: [{
-          name: 'item',
-          sku: 'item',
-          price: classified.price,
-          currency: 'USD',
-          quantity: quantity
-        }]
-      },
-      amount: {
-        currency: 'USD',
-        total: classified.price * quantity
-      },
-      description: 'Order for ' + classified.title
-    }]
-  };
-  db.tx(async () => {
-    const transaction = await paypal.createPay(payment);
-    assert(transaction !== undefined);
-    const amount = classified.price * quantity;
-    const p = await db.createPayment(
-      {
-        transactionId: transaction.id,
-        from: req.userId,
-        state: transaction.state,
-        amount,
-        quantity,
-        entityId: classified.entityId
-      }
-    );
-    await db.createUserTransaction(
-      {
-        userPaymentId: p.id,
-        from: req.userId,
-        to: classified.creator_id,
-        status: 'awaiting_buyer_consent',
-        amount
-      }
-    );
+  buy.buy(req.userId, req.params.id, quantity, (transaction) => {
     res.send(transaction.links.filter(l => l.method === 'REDIRECT')[0].href);
+  }, (e) => {
+    res.send({ error: 'Something went wrong please try again later' });
   });
 }));
 
 app.post('/ship', loginware, wrapper(async (req, res) => {
-  const payment = await db.getPayment({ transactionId: req.body.payment_id, userId: req.userId });
-  if (!payment) { res.send({ error: 'No payments found!' }); }
-
-  const transactionId = payment.transaction_id;
-  const tr = await paypal.getPayment(transactionId);
-  assert(tr !== undefined, 'transaction is not defined!');
-  assert(typeof tr === 'object', 'transaction is not aa object');
-
-  const orderId = tr.transactions[0].related_resources[0].order.id;
-  const total = tr.transactions[0].amount.total;
-  const state = tr.transactions[0].related_resources[0].order.state;
-
-  payment.quantity -= payment.order_quantity;
-
-  db.tx(async () => {
-    if (state === 'COMPLETED') {
-      await db.setUserTransactionState({ id: payment.id, state: 'order_completed' });
-      await db.setQuantity(payment);
-      res.send('Transaction Completed');
-    } else {
-      const r = await db.setPaymentState({ transactionId, state: state });
-      const t = paypal.orderAuthorize({ orderId, total });
-      await db.setPaymentState({ transactionId, state: t.state });
-      await paypal.captureOrder({ orderId, total });
-      await db.setUserTransactionState({ id: r.id, state: 'order_completed' });
-      await db.setQuantity(payment);
-      res.send('Transaction Completed');
-    }
+  buy.ship(req.body.payment_id, req.userId, () => {
+    res.send('Transaction completed!');
+  }, (e) => {
+    console.log(e);
+    res.send('There was a problem please try again later!');
   });
 }));
 
 app.get('/classified/:id', loginware, wrapper(async (req, res) => {
-  
   const classified = await db.getJoinedClassified(req.params.id);
-  assert(classified !== undefined, 'classified are not defined');
-  if (classified[0].picture) {
-    classified[0].picture = Buffer.from(classified[0].picture).toString('base64');
+
+  assert(classified != null, 'classified are not defined');
+
+  if (classified.picture) {
+    classified.picture = Buffer.from(classified.picture).toString('base64');
   }
-  res.render('classified', { c: classified[0], comments: classified.filter(r => r.comment_date !== null), auth: req.authenticated });
+
+  const templateObj = {
+    c: classified,
+    comments: classified.filter(r => r.comment_date !== null),
+    auth: req.authenticated
+  };
+
+  res.render('classified', templateObj);
 }));
 app.get('/logout', loginware, wrapper(async (req, res) => {
   await db.stopSession(req.userId);
@@ -266,10 +215,12 @@ app.post('/classified', loginware, wrapper(async (req, res) => {
     }
   }
   req.body.userId = req.userId;
+
   if (req.files) {
     req.body.picture = req.files.picture.data;
     req.body.picture = await sharp(req.body.picture).resize(500, 500).toBuffer();
   }
+
   req.body.entityId = crypto.randomBytes(10).toString('hex');
   await db.createClassified(req.body);
   res.redirect(`/list/${req.body.type}/1`);
@@ -282,21 +233,22 @@ app.post('/login', wrapper(async (req, res) => {
     res.render('login', { error: status.message, auth: req.authenticated });
     return;
   }
+
   const secret = crypto.randomBytes(30).toString('hex');
   await db.login({ userId: status.user.id, secret });
+
   res.cookie('sessionToken', secret).redirect('/list/promoted/1');
 }));
-app.get('/list/:type/:id', loginware, wrapper(async (req, res) => {
-  assert(req.params.id !== undefined);
+app.get('/list/:type/:id', loginware, async (req, res) => {
+  assert(req.params.id != null);
   assert(+req.params.id >= 1, 'page not correct');
-  assert(req.params.type !== undefined);
+  assert(req.params.type != null);
 
   let classifieds = null;
   let rowCount = null;
   if (req.params.type !== 'promoted') {
     classifieds = await db.getClassifiedsByType(req.params.type, (req.params.id - 1) * 30, 30);
-    console.log(classifieds.filter(c => c.st == 'authorized').length);
-    
+
     classifieds.sort((a, b) => {
       if (a.status === 'authorized') {
         return 1;
@@ -306,24 +258,31 @@ app.get('/list/:type/:id', loginware, wrapper(async (req, res) => {
     });
   } else {
     classifieds = await db.getPromotedClassifieds((req.params.id - 1) * 30, 30);
-    console.log(classifieds)
   }
+
   if (classifieds[0]) {
     rowCount = +classifieds[0].count;
   }
-  classifieds.filter(c => c.picture).map(c => c.picture = Buffer.from(c.picture).toString('base64'));
-  classifieds.filter(c => c.description.length > 50).map(c => c.description = c.description.substring(0, 50) + '...');
-  const formatted = OneDToTwoD(classifieds, 3);
+
+  classifieds
+    .filter(c => c.picture)
+    .forEach(c => c.picture = Buffer.from(c.picture).toString('base64'));
+
+  classifieds
+    .filter(c => c.description.length > 50)
+    .forEach(c => c.description = c.description.substring(0, 50) + '...');
+
   const templateObj = {
-    classifieds: formatted,
+    classifieds: OneDToTwoD(classifieds, 3),
     auth: req.authenticated,
     page: req.params.id,
     maxPage: Math.ceil(rowCount / 30),
     type: req.params.type,
     pages: [-10, -3, -2, -1, 0, 1, 2, 3, 10]
   };
+
   res.render('list', templateObj);
-}));
+});
 
 db.createTables()
   .then(() => {

@@ -35,7 +35,7 @@ class RPCValidator {
   async validateApiKey (apiKey) {
     try {
       const user = (await this.db.getUserByAPI(apiKey));
-      
+
       if (!user) {
         return this.errorCodes['INVALID_REQUEST'];
       }

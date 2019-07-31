@@ -11,6 +11,7 @@ class Promotion {
     if (calculation.error) {
       throw new Error(calculation.error);
     }
+
     const payment = {
       intent: 'authorize',
       payer: {
@@ -28,6 +29,7 @@ class Promotion {
         description: `Classified promotion for ${keys.lenght} promotion until ${to}`
       }]
     };
+
     const transaction = await this.paypal.createPay(payment);
     const tr = {
       transactionId: transaction.id,
@@ -35,10 +37,11 @@ class Promotion {
       userId,
       amount: Number(transaction.transactions[0].amount.total)
     };
-    
+
     await this.db.createTransaction(tr);
     const promises = [];
     // await this.db.getTransaction(transaction.id)
+
     for (const classifiedId of keys) {
       const pr = {
         transactionId: transaction.id,
@@ -48,13 +51,14 @@ class Promotion {
       };
       promises.push(this.db.createPromotion(pr));
     }
+
     await Promise.all(promises);
     return transaction.links.filter(l => l.method === 'REDIRECT')[0].href;
   }
 
   calcPromotion ({ to, classifiedsCount }) {
     const days = Math.ceil((new Date(to) - new Date()) / (1000 * 60 * 60 * 24));
-    
+
     if (isNaN(days) || days <= 0) {
       return ({ error: 'The period musts be at least one day' });
     } else if (!classifiedsCount || classifiedsCount <= 0) {

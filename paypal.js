@@ -45,6 +45,7 @@ class Paypal {
         paypal.notification.webhook.del(webhooks.webhooks[0].id, (err) => {
           if (err) {
             reject(err);
+            return;
           }
           resolve();
         });
@@ -77,11 +78,10 @@ class Paypal {
       };
       paypal.payment.execute(transactionId, executePaymentJson, function (err, payment) {
         if (err) {
-          console.log(err.response);
           reject(err);
-        } else {
-          resolve(payment);
+          return;
         }
+        resolve(payment);
       });
     });
   }
@@ -90,11 +90,10 @@ class Paypal {
     return new Promise((resolve, reject) => {
       paypal.authorization.get(transactionId, (err, auth) => {
         if (err) {
-          console.log(err.response);
           reject(err);
-        } else {
-          resolve(auth);
+          return;
         }
+        resolve(auth);
       });
     });
   }
@@ -105,21 +104,21 @@ class Paypal {
         if (err) {
           console.log(err);
           reject(err);
-        } else {
-          resolve(auth);
+          return;
         }
+        resolve(auth);
       });
     });
   }
 
-  orderAuthorize ({ oderId, total }) {
+  orderAuthorize ({ orderId, total }) {
     return new Promise((resolve, reject) => {
-      paypal.order.authorize(oderId, { amount: { total, currency: 'USD' } }, function (err, auth) {
+      paypal.order.authorize(orderId, { amount: { total, currency: 'USD' } }, function (err, auth) {
         if (err) {
           reject(err);
-        } else {
-          resolve(auth);
+          return;
         }
+        resolve(auth);
       });
     });
   }
@@ -128,7 +127,6 @@ class Paypal {
     return new Promise((resolve, reject) => {
       paypal.order.capture(orderId, { amount: { total, currency: 'USD' }, is_final_capture: true }, (err, auth) => {
         if (err) {
-          console.log(err.response);
           reject(err);
         } else {
           resolve(auth);
@@ -137,15 +135,14 @@ class Paypal {
     });
   }
 
-  getPayment (transactionId) {
+  getPayment ({ transactionId }) {
     return new Promise((resolve, reject) => {
       paypal.payment.get(transactionId, (err, auth) => {
         if (err) {
-          console.log(err.response);
           reject(err);
-        } else {
-          resolve(auth);
+          return;
         }
+        resolve(auth);
       });
     });
   }
@@ -154,18 +151,12 @@ class Paypal {
     return new Promise((resolve, reject) => {
       paypal.order.get(transactionId, (err, auth) => {
         if (err) {
-          console.log(err.response);
           reject(err);
-        } else {
-          resolve(auth);
+          return;
         }
+        resolve(auth);
       });
     });
   }
 }
 module.exports = Paypal;
-
-// create payment
-// get payment t.transactions[0].related_resources[0].orde.id
-// authorize order
-// capture order
