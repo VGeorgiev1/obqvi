@@ -185,12 +185,12 @@ app.get('/classified/:id', loginware, wrapper(async (req, res) => {
 
   assert(classified != null, 'classified are not defined');
 
-  if (classified.picture) {
-    classified.picture = Buffer.from(classified.picture).toString('base64');
+  if (classified[0].picture) {
+    classified[0].picture = Buffer.from(classified.picture).toString('base64');
   }
 
   const templateObj = {
-    c: classified,
+    c: classified[0],
     comments: classified.filter(r => r.comment_date !== null),
     auth: req.authenticated
   };

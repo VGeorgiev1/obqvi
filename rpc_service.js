@@ -51,7 +51,7 @@ class RPC {
         },
         method: async (obj) => {
           obj.entityId = obj.classified_id;
-          console.log(await db.updateClassified(obj));
+          await db.updateClassified(obj);
           return 'Classified updated successful!';
         }
       },

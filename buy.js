@@ -42,7 +42,9 @@ class Buy {
 
     this.db.tx(async () => {
       const transaction = await this.paypal.createPay(payment);
-      assert(transaction !== undefined);
+
+      assert(transaction != null);
+
       const amount = classified.price * quantity;
       const p = await this.db.createPayment(
         {
@@ -70,14 +72,13 @@ class Buy {
   }
 
   async ship (transactionId, userId, callback, errorback) {
-    console.log(transactionId);
     const payment = await this.db.getPayment({ transactionId, userId });
     if (!payment) { errorback({ error: 'No payments found!' }); return; }
 
     const trId = payment.transaction_id;
     const pay = await this.paypal.getPayment({ transactionId: trId });
 
-    assert(pay !== undefined, 'transaction is not defined!');
+    assert(pay != null, 'transaction is not defined!');
     assert(typeof pay === 'object', 'transaction is not aa object');
     const transaction = pay.transactions[0];
     const order = transaction.related_resources[0].order;

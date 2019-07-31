@@ -117,9 +117,7 @@ class Db {
   }
 
   async prepareTransaction ({ paymentId, token, PayerID }) {
-    console.log(paymentId);
-    console.log(token);
-    console.log(PayerID);
+
     return this.client.query(/* sql */`
       
       UPDATE promotion_transactions
@@ -217,7 +215,7 @@ class Db {
       LEFT JOIN comments c on c.classified_entity = cl.entity_id
       LEFT JOIN users as u ON u.id = c.user_id
       WHERE cl.entity_id = $1 AND closed_at IS NULL
-    `, [entityId])).rows[0];
+    `, [entityId])).rows;
   }
 
   async getClassifiedsByType (type, offset, limit) {
@@ -350,8 +348,7 @@ class Db {
   }
 
   async setQuantity ({ entityId, quantity }) {
-    console.log(quantity);
-    console.log(entityId);
+
     return this.client.query(/* sql */`
       UPDATE classifieds
       SET quantity = $2

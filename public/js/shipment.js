@@ -1,7 +1,6 @@
 /* eslint-disable no-undef */
 $('.shipment').each((key, btn) => {
   $(btn).click(function (e) {
-    console.log('here');
     $('#errmsg').hide();
     $('#success').hide();
     $.ajax({
