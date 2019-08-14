@@ -1,51 +1,58 @@
-const Client = require('pg').Client;
+const Pool = require('pg').Pool;
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
 class Db {
   constructor (errorHandler) {
-    this.client = new Client({
-      user: 'postgres',
-      host: 'localhost',
-      database: 'store',
-      password: process.env.PGPASSWORD,
-      port: 5432
-    });
+    this.pool = new Pool();
     this.errorHandler = errorHandler;
-    this.client.connect();
+    for (const fn of Object.getOwnPropertyNames(Db.prototype).filter(f => f !== 'constructor' && f !== 'tx')) {
+      const deffered = this[fn].bind(this);
+
+      this[fn] = async (obj) => {
+        if (!obj) {
+          obj = { client: await this.pool.connect() };
+        }
+        if (!obj.client) {
+          obj.client = await this.pool.connect();
+        }
+        try {
+          return await deffered(obj);
+        } finally {
+          obj.client.release();
+        }
+      };
+    }
   }
 
   async tx (callback, errorback) {
+    const client = await this.pool.connect();
+
+    await client.query('BEGIN');
     try {
-      await this.client.query('BEGIN');
-      try {
-        await callback();
-        this.client.query('COMMIT');
-      } catch (e) {
-        this.client.query('ROLLBACK');
-        errorback(e);
-      }
+      await callback(client);
+      client.query('COMMIT');
     } catch (e) {
-      this.client.query('ROLLBACK');
+      client.query('ROLLBACK');
       errorback(e);
     }
   }
 
-  async createUser ({ username, password, email, gender, apiKey }) {
+  async createUser ({ client, username, password, email, gender, apiKey }) {
     const hash = await bcrypt.hash(password, saltRounds);
-    return this.client.query(/* sql */`
-      INSERT INTO users(username,password,email,gender,api_key) VALUES($1,$2,$3,$4,$5);
+    return client.query(/* sql */`
+      INSERT INTO users(username, password, email, gender, api_key) VALUES($1,$2,$3,$4,$5);
       `, [username, hash, email, gender, apiKey]);
   }
 
-  async createPromotion ({ transactionId, classifiedId, to, status }) {
-    return this.client.query(/* sql */`
+  async createPromotion ({ client, transactionId, classifiedId, to, status }) {
+    return client.query(/* sql */`
       INSERT INTO promotions(transaction_id,classified_entity,end_date, status)
       VALUES($1,$2,TO_TIMESTAMP($3, 'MM/DD/YYYY'),$4);
     `, [transactionId, classifiedId, to, status]);
   }
 
-  async getUserClassfieds (userId) {
-    return (await this.client.query(/* sql */`
+  async getUserClassfieds ({ client, userId }) {
+    return (await client.query(/* sql */`
       SELECT
       cl.id,
       cl.status,
@@ -57,15 +64,15 @@ class Db {
       `, [userId])).rows;
   }
 
-  async getUser (userId) {
-    return (await this.client.query(/* sql */`
+  async getUser ({ client, userId }) {
+    return (await client.query(/* sql */`
       SELECT * FROM users 
       WHERE id = $1; 
     `, [userId])).rows[0];
   }
 
-  async getShipments (userId) {
-    return (await this.client.query(/* sql */`
+  async getShipments ({ client, userId }) {
+    return (await client.query(/* sql */`
       SELECT 
         c.title,
         c.entity_id,
@@ -80,8 +87,8 @@ class Db {
     `, [userId])).rows;
   }
 
-  async authenticateUser ({ username, password }) {
-    const res = await this.client.query(/* sql */`
+  async authenticateUser ({ client, username, password }) {
+    const res = await client.query(/* sql */`
       SELECT * 
       FROM users 
       WHERE username = $1
@@ -100,8 +107,8 @@ class Db {
     return ({ authenticated: true, message: '', user: res.rows[0] });
   }
 
-  async getTransaction (transactionId) {
-    return this.client.query(/* sql */`
+  async getTransaction ({ client, transactionId }) {
+    return client.query(/* sql */`
 
       SELECT * 
       FROM promotion_transactions
@@ -110,15 +117,14 @@ class Db {
     `, [transactionId]);
   }
 
-  async createTransaction ({ transactionId, state, userId, amount }) {
-    return this.client.query(/* sql */`
+  async createTransaction ({ client, transactionId, state, userId, amount }) {
+    return client.query(/* sql */`
       INSERT INTO promotion_transactions(transaction_id, state, sender_id, amount) VALUES($1,$2,$3,$4)
     `, [transactionId, state, userId, amount]);
   }
 
-  async prepareTransaction ({ paymentId, token, PayerID }) {
-
-    return this.client.query(/* sql */`
+  async prepareTransaction ({ client, paymentId, token, PayerID }) {
+    return client.query(/* sql */`
       
       UPDATE promotion_transactions
       SET payer_id = $1,
@@ -128,53 +134,55 @@ class Db {
     `, [PayerID, token, paymentId]);
   }
 
-  async setTransactionState ({ transactionId, state }) {
-    return this.client.query(/* sql */`
+  async setTransactionState ({ client, transactionId, state }) {
+    return client.query(/* sql */`
+
       UPDATE promotion_transactions
       SET state = $2
-      WHERE transaction_id = $1 
+      WHERE transaction_id = $1
+
     `, [transactionId, state]);
   }
 
-  async setPromotionStatus ({ transactionId, state }) {
-    return this.client.query(/* sql */`
+  async setPromotionStatus ({ client, transactionId, state }) {
+    return client.query(/* sql */`
       UPDATE promotions
       SET status = $1
       WHERE transaction_id = $2
     `, [state, transactionId]);
   }
 
-  async getPromotions (transactionId) {
-    return (await this.client.query(/* sql */`
+  async getPromotions ({ client, transactionId }) {
+    return (await client.query(/* sql */`
       SELECT * FROM promotions as p
       INNER JOIN classifieds as c on c.entity_id = p.classified_entity 
       WHERE transaction_id = $1
     `, [transactionId])).rows;
   }
 
-  async findTransaction (transactionId) {
-    return (await this.client.query(/* sql */`
+  async findTransaction ({ client, transactionId }) {
+    return (await client.query(/* sql */`
       SELECT * FROM promotion_transactions
       WHERE transaction_id = $1
     `, [transactionId])).rows[0];
   }
 
-  async findUserPayment (transactionId) {
-    return (await this.client.query(/* sql */`
+  async findUserPayment ({ client, transactionId }) {
+    return (await client.query(/* sql */`
       SELECT * 
       FROM user_payments
       WHERE transaction_id = $1
     `, [transactionId])).rows[0];
   }
 
-  async getSession (secret) {
-    return (await this.client.query(/* sql */`
+  async getSession ({ client, secret }) {
+    return (await client.query(/* sql */`
       SELECT * FROM sessions WHERE SECRET = $1 AND logged = TRUE;
     `, [secret])).rows[0];
   }
 
-  async login ({ userId, secret }) {
-    return this.client.query(/* sql */`
+  async login ({ client, userId, secret }) {
+    return client.query(/* sql */`
       INSERT INTO sessions (user_id, secret) VALUES($1, $2) ON CONFLICT (user_id)
       DO UPDATE
       SET logged = TRUE,
@@ -182,23 +190,23 @@ class Db {
     `, [userId, secret]);
   }
 
-  async getUserByAPI (apiKey) {
-    return (await this.client.query(/* sql */`
+  async getUserByAPI ({ client, apiKey }) {
+    return (await client.query(/* sql */`
       SELECT id FROM users 
       WHERE api_key = $1; 
     `, [apiKey])).rows[0];
   }
 
-  async logout (secret) {
-    return this.client(/* sql */`
+  async logout ({ client, secret }) {
+    return client(/* sql */`
       UPDATE Session
       SET logged = false
       WHERE secret = $1
     `, [secret]);
   }
 
-  async getJoinedClassified (entityId) {
-    return (await this.client.query(/* sql */`
+  async getJoinedClassified ({ client, entityId }) {
+    return (await client.query(/* sql */`
       SELECT 
       cl.price,
       cl.entity_id,
@@ -218,8 +226,8 @@ class Db {
     `, [entityId])).rows;
   }
 
-  async getClassifiedsByType (type, offset, limit) {
-    return (await this.client.query(/* sql */`
+  async getClassifiedsByType ({ client, type, offset, limit }) {
+    return (await client.query(/* sql */`
       SELECT COUNT(*) OVER (), c.*, u.*, p.status as st FROM classifieds c
       LEFT JOIN promotions as p ON p.classified_entity = c.entity_id
       INNER JOIN users u ON u.id = c.creator_id
@@ -228,31 +236,31 @@ class Db {
     `, [type, offset, limit])).rows;
   }
 
-  async getClassified (entityId) {
-    return (await this.client.query(/* sql */`
+  async getClassified ({ client, entityId }) {
+    return (await client.query(/* sql */`
       SELECT price,creator_id, entity_id, title, description, quantity, created_at as classified_date,picture FROM classifieds cl
       WHERE entity_id = $1 AND closed_at IS NULL
     `, [entityId])).rows[0];
   }
 
-  async createComment ({ userId, classifiedsEntity, body }) {
-    return this.client.query(/* sql */`
+  async createComment ({ client, userId, classifiedsEntity, body }) {
+    return client.query(/* sql */`
       INSERT INTO comments(user_id,classified_entity, body)
       VALUES($1,$2,$3)
     `, [userId, classifiedsEntity, body]);
   }
 
-  async createClassified ({ title, entityId, userId, description, picture, price, quantity, type }) {
+  async createClassified ({ client, title, entityId, userId, description, picture, price, quantity, type }) {
     // eslint-disable-next-line no-return-await
-    return (await this.client.query(/* sql */`
+    return (await client.query(/* sql */`
       INSERT INTO classifieds (title,creator_id,description,picture,price,quantity, entity_id, type)
       VALUES($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING entity_id
     `, [title, userId, description, picture, price, quantity, entityId, type])).rows[0];
   }
 
-  async updateClassified ({ entityId, title, description, price, quantity, picture, userId }) {
-    return this.client.query(/* sql */`
+  async updateClassified ({ client, entityId, title, description, price, quantity, picture, userId }) {
+    return client.query(/* sql */`
       UPDATE classifieds SET
         title = COALESCE($2, title),
         description = COALESCE($3, description),
@@ -263,16 +271,16 @@ class Db {
     `, [entityId, title, description, price, quantity, picture, userId]);
   }
 
-  async deleteClassified (entityId) {
-    return this.client.query(/* sql */`
+  async deleteClassified ({ client, entityId }) {
+    return client.query(/* sql */`
       UPDATE classifieds SET
         closed_at = NOW()
       WHERE entity_id = $1 AND closed_at IS NULL
     `, [entityId]);
   }
 
-  async getPromotedClassifieds (offset, limit) {
-    return (await this.client.query(/* sql */`
+  async getPromotedClassifieds ({ client, offset, limit }) {
+    return (await client.query(/* sql */`
       SELECT DISTINCT 
       c.entity_id,
       c.created_at,
@@ -293,14 +301,14 @@ class Db {
     `, [offset, limit])).rows;
   }
 
-  async getClassifiedCount () {
-    return (await this.client.query(/* sql */`
+  async getClassifiedCount ({ client }) {
+    return (await client.query(/* sql */`
       SELECT COUNT(*) FROM classifieds;
     `)).rows[0].count;
   }
 
-  async getPayment ({ transactionId, userId }) {
-    return (await this.client.query(/* sql */`
+  async getPayment ({ client, transactionId, userId }) {
+    return (await client.query(/* sql */`
       SELECT 
       up.id, 
       up.transaction_id,
@@ -314,8 +322,8 @@ class Db {
     `, [transactionId, userId])).rows[0];
   }
 
-  async prepareUserPayment ({ paymentId, token, PayerID }) {
-    return (await this.client.query(/* sql */`
+  async prepareUserPayment ({ client, paymentId, token, PayerID }) {
+    return (await client.query(/* sql */`
       UPDATE user_payments
       SET token = $2,
         payer_id = $3
@@ -324,40 +332,39 @@ class Db {
     `, [paymentId, token, PayerID])).rows[0];
   }
 
-  async setUserTransactionState ({ id, state }) {
-    return this.client.query(/* sql */`
+  async setUserTransactionState ({ client, id, state }) {
+    return client.query(/* sql */`
       UPDATE user_transactions
       SET state = $2
       WHERE user_payment_id = $1;
     `, [id, state]);
   }
 
-  async createUserTransaction ({ userPaymentId, from, to, state, amount }) {
-    return this.client.query(/* sql */`
+  async createUserTransaction ({ client, userPaymentId, from, to, state, amount }) {
+    return client.query(/* sql */`
       INSERT INTO user_transactions(user_payment_id,sender,recipant,state,amount)
       VALUES($1,$2,$3,$4,$5)
     `, [userPaymentId, from, to, state, amount]);
   }
 
-  async createPayment ({ transactionId, from, state, amount, quantity, entityId }) {
-    return (await this.client.query(/* sql */`
+  async createPayment ({ client, transactionId, from, state, amount, quantity, entityId }) {
+    return (await client.query(/* sql */`
       INSERT INTO user_payments(transaction_id,sender_id,state,amount, quantity, classified_entity)
       VALUES($1,$2,$3,$4,$5,$6)
       RETURNING id
     `, [transactionId, from, state, amount, quantity, entityId])).rows[0];
   }
 
-  async setQuantity ({ entityId, quantity }) {
-
-    return this.client.query(/* sql */`
+  async setQuantity ({ client, entityId, quantity }) {
+    return client.query(/* sql */`
       UPDATE classifieds
       SET quantity = $2
       WHERE entity_id = $1;
     `, [entityId, quantity]);
   }
 
-  async setPaymentState ({ transactionId, state }) {
-    return (await this.client.query(/* sql */`
+  async setPaymentState ({ client, transactionId, state }) {
+    return (await client.query(/* sql */`
       UPDATE user_payments
       SET state = $2
       WHERE transaction_id = $1
@@ -365,24 +372,24 @@ class Db {
   `, [transactionId, state])).rows[0].id;
   }
 
-  async stopSession (userId) {
-    return this.client.query(/* sql */`
+  async stopSession ({ client, userId }) {
+    return client.query(/* sql */`
       UPDATE sessions
       SET logged = false
       WHERE user_id = $1
     `, [userId]);
   }
 
-  async createIndexes () {
-    return this.client.query(/* sql */`
+  async createIndexes ({ client }) {
+    return client.query(/* sql */`
       CREATE INDEX CONCURRENTLY IF NOT EXISTS trgm_idx
       ON classifieds
       USING gin (type gin_trgm_ops);
     `);
   }
 
-  async createTables () {
-    return this.client.query(/* sql */ `
+  async createTables ({ client }) {
+    return client.query(/* sql */ `
       BEGIN;
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,

@@ -5,8 +5,10 @@ const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const sharp = require('sharp');
 
+const assert = require('./assert').assert;
+const userAssert = require('./userAssert').assert;
+
 const host = 'https://d86bff45.ngrok.io';
-const assert = require('./assert');
 
 const Promotion = require('./promotion');
 const Rpc = require('./rpc_service');
@@ -33,9 +35,10 @@ app.use(fileUpload());
 
 const wrapper = fn => async (req, res, next) => {
   try {
+    console.log(req.originalUrl);
     await fn(req, res, next);
   } catch (e) {
-    console.log(e.message);
+    console.log(e.stack);
     res.render('general_error', { error: 'Something went wrong please try again later' });
   }
 };
@@ -45,7 +48,7 @@ const loginware = wrapper(async (req, res, next) => {
     res.redirect('/login');
     return;
   }
-  const sess = await db.getSession(req.cookies.sessionToken);
+  const sess = await db.getSession({ secret: req.cookies.sessionToken });
   if (!sess) {
     res.redirect('/login');
     return;
@@ -56,7 +59,7 @@ const loginware = wrapper(async (req, res, next) => {
 });
 
 app.get('/promo', loginware, wrapper(async (req, res) => {
-  const rows = await db.getUserClassfieds(req.userId);
+  const rows = await db.getUserClassfieds({ userId: req.userId });
 
   assert(rows != null, 'Ads for promos are undefined!');
 
@@ -64,20 +67,21 @@ app.get('/promo', loginware, wrapper(async (req, res) => {
 }));
 
 app.get('/shipments', loginware, wrapper(async (req, res) => {
-  const rows = await db.getShipments(req.userId);
+  const rows = await db.getShipments({ userId: req.userId });
   assert(rows != null, 'Shipments are undefined');
   res.render('shipments', { classifieds: rows, auth: req.authenticated });
 }));
 
 app.get('/promo/success', wrapper(async (req, res) => {
   await db.prepareTransaction(req.query);
-  const promotions = await db.getPromotions(req.query.paymentId);
+  const promotions = await db.getPromotions({ transactionId: req.query.paymentId });
   assert(promotions != null, 'Promotion is undefined');
   res.render('promo_success', { classifieds: promotions, auth: req.authenticated });
 }));
 
 app.get('/buy/success', loginware, wrapper(async (req, res) => {
-  db.tx(async () => {
+  db.tx(async (client) => {
+    req.query.client = client;
     const r = await db.prepareUserPayment(req.query);
 
     await db.setUserTransactionState({
@@ -100,10 +104,12 @@ app.post('/rpc', wrapper(async (req, res) => {
   res.setHeader('Content-Type', 'application/json-rpc');
   if (req.headers['content-type'] !== 'application/json' &&
    req.headers['content-type'] !== 'application/json-rpc') {
+    res.status(400);
     res.send({ jsonrpc: '2.0', error: { code: -32700, message: 'Invalid Request' }, id: null });
   } else {
     const result = await rpc.execute(req.body);
-    res.send(result);
+    res.status(result.httpStatus);
+    res.send(result.response);
   }
 }));
 
@@ -129,8 +135,10 @@ app.post('/calculate', loginware, wrapper((req, res) => {
 }));
 
 app.get('/profile', loginware, wrapper(async (req, res) => {
-  const user = await db.getUser(req.userId);
+  const user = await db.getUser({ userId: req.userId });
+
   assert(user != null, 'user is undefined');
+
   res.render('profile', { profile: user, auth: req.authenticated });
 }));
 
@@ -138,10 +146,15 @@ app.get('/register', wrapper((req, res) => {
   if (req.authenticated) {
     res.redirect('/list/promoted/1');
   }
+
   res.render('register', { auth: req.authenticated });
 }));
 
 app.post('/register', wrapper(async (req, res) => {
+  userAssert(req.body.username !== null, 'Username cannot be null');
+  userAssert(req.body.email !== null, 'Username cannot be null');
+  userAssert(req.body.password !== null, 'Username cannot be null');
+
   if (req.body.username.length > 0 && req.body.password.length !== 0 && req.body.email.length !== 0) {
     req.body.apiKey = crypto.randomBytes(30).toString('hex');
     await db.createUser(req.body);
@@ -164,6 +177,7 @@ app.post('/buy/:id', loginware, wrapper(async (req, res) => {
     res.send({ error: 'Invalid quantity' });
     return;
   }
+
   buy.buy(req.userId, req.params.id, quantity, (transaction) => {
     res.send(transaction.links.filter(l => l.method === 'REDIRECT')[0].href);
   }, (e) => {
@@ -181,14 +195,14 @@ app.post('/ship', loginware, wrapper(async (req, res) => {
 }));
 
 app.get('/classified/:id', loginware, wrapper(async (req, res) => {
-  const classified = await db.getJoinedClassified(req.params.id);
+  const classified = await db.getJoinedClassified({ entityId: req.params.id });
 
   assert(classified != null, 'classified are not defined');
-
+  console.log(classified[0].picture)
   if (classified[0].picture) {
-    classified[0].picture = Buffer.from(classified.picture).toString('base64');
+    classified[0].picture = Buffer.from(classified[0].picture).toString('base64');
   }
-
+  console.log(classified[0].picture)
   const templateObj = {
     c: classified[0],
     comments: classified.filter(r => r.comment_date !== null),
@@ -198,7 +212,7 @@ app.get('/classified/:id', loginware, wrapper(async (req, res) => {
   res.render('classified', templateObj);
 }));
 app.get('/logout', loginware, wrapper(async (req, res) => {
-  await db.stopSession(req.userId);
+  await db.stopSession({ userId: req.userId });
   res.clearCookie('sessionToken');
   res.redirect('/list/promoted/1');
 }));
@@ -227,6 +241,9 @@ app.post('/classified', loginware, wrapper(async (req, res) => {
 }));
 
 app.post('/login', wrapper(async (req, res) => {
+  userAssert(req.body.name !== null, 'Username cannot be null/undefined!');
+  userAssert(req.body.password !== null, 'Password cannot be null/undefined!');
+
   const status = await db.authenticateUser({ username: req.body.name, password: req.body.password });
 
   if (!status.authenticated) {
@@ -247,7 +264,7 @@ app.get('/list/:type/:id', loginware, async (req, res) => {
   let classifieds = null;
   let rowCount = null;
   if (req.params.type !== 'promoted') {
-    classifieds = await db.getClassifiedsByType(req.params.type, (req.params.id - 1) * 30, 30);
+    classifieds = await db.getClassifiedsByType({ type: req.params.type, offset: (req.params.id - 1) * 30, limit: 30 });
 
     classifieds.sort((a, b) => {
       if (a.status === 'authorized') {
@@ -257,7 +274,7 @@ app.get('/list/:type/:id', loginware, async (req, res) => {
       }
     });
   } else {
-    classifieds = await db.getPromotedClassifieds((req.params.id - 1) * 30, 30);
+    classifieds = await db.getPromotedClassifieds({ offset: (req.params.id - 1) * 30, limit: 30 });
   }
 
   if (classifieds[0]) {
@@ -266,11 +283,15 @@ app.get('/list/:type/:id', loginware, async (req, res) => {
 
   classifieds
     .filter(c => c.picture)
-    .forEach(c => c.picture = Buffer.from(c.picture).toString('base64'));
+    .forEach(function (c) {
+      c.picture = Buffer.from(c.picture).toString('base64');
+    });
 
   classifieds
     .filter(c => c.description.length > 50)
-    .forEach(c => c.description = c.description.substring(0, 50) + '...');
+    .forEach(function (c) {
+      c.description = c.description.substring(0, 50) + '...';
+    });
 
   const templateObj = {
     classifieds: OneDToTwoD(classifieds, 3),
@@ -278,7 +299,7 @@ app.get('/list/:type/:id', loginware, async (req, res) => {
     page: req.params.id,
     maxPage: Math.ceil(rowCount / 30),
     type: req.params.type,
-    pages: [-10, -3, -2, -1, 0, 1, 2, 3, 10]
+    pages: [-10, -3, -2, -1, 0, 1, 2, 3, 10] // pagination rules
   };
 
   res.render('list', templateObj);

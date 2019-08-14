@@ -11,18 +11,19 @@ module.exports = {
       const transactionId = payment.transaction_id;
       const order = await paypal.getPayment({ transactionId });
       if (order.transactions[0].related_resources[0].order.state !== 'COMPLETED') {
-        db.tx(async () => {
+        db.tx(async (client) => {
           const t = await paypal.execute({ transactionId, payerId, total });
-          const r = await db.setPaymentState({ transactionId, state: t.state });
-          await db.setUserTransactionState({ id: r.id, state: 'order_placed' });
+          const r = await db.setPaymentState({ client, transactionId, state: t.state });
+          await db.setUserTransactionState({ client, id: r.id, state: 'order_placed' });
         }, (e) => {
           console.log(e);
         });
       }
     } else {
-      db.tx(async () => {
+      db.tx(async (client) => {
+        resource.client = client;
         await db.setTransactionState(resource);
-        const payment = await db.findTransaction(resource.id);
+        const payment = await db.findTransaction({ client, transactionId: resource.id });
         if (!payment) {
           return;
         }
@@ -38,11 +39,11 @@ module.exports = {
     const transactionId = resource.parent_payment;
     const auth = await paypal.getPaymentAuthoriztaion(resource.id);
     if (auth.state !== 'captured') {
-      db.tx(async () => {
+      db.tx(async (client) => {
         await paypal.capturePayment({ transactionId: resource.id, total: resource.amount.total });
         console.log('Payment captured!');
-        await db.setTransactionState({ transactionId, state: 'completed' });
-        await db.setPromotionStatus({ transactionId, state: 'authorized' });
+        await db.setTransactionState({ client, transactionId, state: 'completed' });
+        await db.setPromotionStatus({ client, transactionId, state: 'authorized' });
       }, (e) => {
         console.log(e);
       });

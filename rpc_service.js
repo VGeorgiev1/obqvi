@@ -1,5 +1,6 @@
 const Validator = require('./rpc_validator');
-const assert = require('./assert');
+const assert = require('./assert').assert;
+const errorCodes = require('./errorCodes');
 const crypto = require('crypto');
 
 class RPC {
@@ -16,6 +17,7 @@ class RPC {
           classified_id: { type: 'string', required: true }
         },
         method: async (obj) => {
+          assert(typeof db.getClassified === 'function');
           return db.getClassified(obj.classified_id);
         }
       },
@@ -33,10 +35,14 @@ class RPC {
           quantity: { type: 'number' },
           price: { type: 'number' },
           type: { type: 'string' },
-          picture: { type: Buffer }
+          picture: { type: 'string' }
         },
         method: async (obj) => {
+          assert(typeof db.createClassified === 'function');
+          obj.picture = Buffer.from(obj.picture, 'base64');
+
           obj.entityId = crypto.randomBytes(10).toString('hex');
+
           return (await db.createClassified(obj)).entity_id;
         }
       },
@@ -47,11 +53,16 @@ class RPC {
           description: { type: 'string' },
           quantity: { type: 'number' },
           price: { type: 'number' },
-          picture: { type: Buffer }
+          picture: { type: 'string' }
         },
         method: async (obj) => {
+          assert(typeof db.updateClassified === 'function');
+
+          obj.picture = Buffer.from(obj.picture, 'base64');
           obj.entityId = obj.classified_id;
+
           await db.updateClassified(obj);
+
           return 'Classified updated successful!';
         }
       },
@@ -60,7 +71,10 @@ class RPC {
           classified_id: { type: 'string', required: true }
         },
         method: async (obj) => {
+          assert(typeof db.deleteClassified === 'function');
+
           const affectedRows = (await db.deleteClassified(obj.classified_id)).rowCount;
+
           if (affectedRows === 0) {
             return 'Classified already deleted!';
           }
@@ -73,6 +87,8 @@ class RPC {
           classifieds: { type: 'number', required: true }
         },
         method: async (obj) => {
+          assert(typeof promotion.calcPromotion === 'function');
+
           return promotion.calcPromotion(obj);
         }
       },
@@ -82,6 +98,8 @@ class RPC {
           classifieds: { type: Array, required: true }
         },
         method: async (obj) => {
+          assert(typeof promotion.createPromotion === 'function');
+
           const link = await promotion.createPromotion({ to: obj.date, keys: obj.classifieds, userId: obj.userId });
           return link;
         }
@@ -91,45 +109,55 @@ class RPC {
   }
 
   async execute (obj) {
-    const validJsonRes = this.validator.validateJSON(obj);
-    if (validJsonRes.error) {
-      return this.reject(validJsonRes);
-    }
-    const validApiKeyRes = await this.validator.validateApiKey(obj.params.api_key);
-    if (validApiKeyRes.error) {
-      return this.reject(validApiKeyRes);
-    }
-    const deffered = this.methods[obj.method].method;
+    try {
+      const result = this.validator.validJSON(obj);
 
-    delete obj.params.api_key;
-    const res = this.validator.validateParameters(obj);
-    if (!res.error) {
-      try {
-        obj.params.userId = validApiKeyRes;
-        const result = await deffered(obj.params);
-        return this.response({ id: obj.id, message: result });
-      } catch (e) {
-        console.log(e);
-        return this.reject(this.validator.errorCodes['INTERNAL_ERROR']);
+      if (errorCodes[result]) {
+        return this.reject(errorCodes[result]);
       }
-    } else {
-      return this.reject(res);
+
+      const user = (await this.db.getUserByAPI({ apiKey: obj.params.api_key }));
+
+      if (!user) {
+        return this.reject(errorCodes['INVALID_REQUEST']);
+      }
+
+      const deffered = this.methods[obj.method].method;
+
+      delete obj.params.api_key;
+      const res = this.validator.validateParameters(obj);
+      if (!res.error) {
+        obj.params.userId = user.id;
+        const result = await deffered(obj.params);
+        return this.response({ id: obj.id, message: result, httpStatus: 200 });
+      } else {
+        return this.reject(errorCodes[res]);
+      }
+    } catch (e) {
+      console.log(e);
+      return this.reject(errorCodes['INTERNAL_ERROR']);
     }
   }
 
   reject (res) {
     return {
-      jsonrpc: this.version,
-      error: { code: res.error.code, message: res.error.message },
-      id: null
+      response: {
+        jsonrpc: this.version,
+        error: { code: res.error.code, message: res.error.message },
+        id: null
+      },
+      httpStatus: res.httpStatus
     };
   }
 
   response (res) {
     return {
-      jsonrpc: this.version,
-      result: res.message,
-      id: res.id
+      response: {
+        jsonrpc: this.version,
+        result: res.message,
+        id: res.id
+      },
+      httpStatus: res.httpStatus
     };
   }
 }

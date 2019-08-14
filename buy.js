@@ -1,4 +1,4 @@
-const assert = require('./assert');
+const assert = require('./baseAssert');
 class Buy {
   constructor (db, paypal, host) {
     this.db = db;
@@ -40,7 +40,7 @@ class Buy {
       }]
     };
 
-    this.db.tx(async () => {
+    this.db.tx(async (client) => {
       const transaction = await this.paypal.createPay(payment);
 
       assert(transaction != null);
@@ -48,6 +48,7 @@ class Buy {
       const amount = classified.price * quantity;
       const p = await this.db.createPayment(
         {
+          client,
           transactionId: transaction.id,
           from: buyerId,
           state: transaction.state,
@@ -59,6 +60,7 @@ class Buy {
 
       await this.db.createUserTransaction(
         {
+          client,
           userPaymentId: p.id,
           from: buyerId,
           to: classified.creator_id,
@@ -90,9 +92,9 @@ class Buy {
     payment.quantity -= payment.order_quantity;
     payment.entityId = payment.classified_entity;
 
-    this.db.tx(async () => {
+    this.db.tx(async (client) => {
       if (state === 'COMPLETED') {
-        await this.db.setUserTransactionState({ id: payment.id, state: 'order_completed' });
+        await this.db.setUserTransactionState({ client, id: payment.id, state: 'order_completed' });
         await this.db.setQuantity(payment);
 
         callback();
@@ -101,9 +103,9 @@ class Buy {
         const payId = await this.db.setPaymentState({ transactionId: trId, state: state });
         const transaction = await this.paypal.orderAuthorize({ orderId, total });
 
-        await this.db.setPaymentState({ transactionId: trId, state: transaction.state });
-        await this.paypal.captureOrder({ orderId, total });
-        await this.db.setUserTransactionState({ id: payId, state: 'order_completed' });
+        await this.db.setPaymentState({ client, transactionId: trId, state: transaction.state });
+        await this.paypal.captureOrder({ client, orderId, total });
+        await this.db.setUserTransactionState({ client, id: payId, state: 'order_completed' });
         await this.db.setQuantity(payment);
       }
       callback();
