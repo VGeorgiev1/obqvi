@@ -288,7 +288,7 @@ app.get('/list/:type/:id', loginware, async (req, res) => {
     });
 
   classifieds
-    .filter(c => c.description.length > 50)
+    .filter(c => c.description ? c.description.length > 50 : null)
     .forEach(function (c) {
       c.description = c.description.substring(0, 50) + '...';
     });

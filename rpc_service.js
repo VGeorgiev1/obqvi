@@ -39,7 +39,9 @@ class RPC {
         },
         method: async (obj) => {
           assert(typeof db.createClassified === 'function');
-          obj.picture = Buffer.from(obj.picture, 'base64');
+          if (obj.picture) {
+            obj.picture = Buffer.from(obj.picture, 'base64');
+          }
 
           obj.entityId = crypto.randomBytes(10).toString('hex');
 
@@ -57,8 +59,9 @@ class RPC {
         },
         method: async (obj) => {
           assert(typeof db.updateClassified === 'function');
-
-          obj.picture = Buffer.from(obj.picture, 'base64');
+          if (obj.picture) {
+            obj.picture = Buffer.from(obj.picture, 'base64');            
+          }
           obj.entityId = obj.classified_id;
 
           await db.updateClassified(obj);
