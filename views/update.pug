@@ -1,0 +1,31 @@
+extends layout.pug
+
+block content
+	.container
+		.row
+			.col
+				.card.border-dark
+					h5.card-header.white-text.text-center.py-4
+						strong Update classified
+					.card-body.px-lg-5.pt-0
+						form.md-form(style="color: #757575;", method="POST", action=`/classified/update/${c.entity_id}`, enctype="multipart/form-data")
+							label(for="Title") Title:
+							input#title.form-control(type="text", name="title", value=c.title)
+							label(for="description") Description:
+							input#description.form-control(type="text", name="description", "value"=c.description)
+							label(for="pic") Picture:
+							div.custom-file#pic
+								input#picture.custom-file-input(type="file", name="picture")
+								label.custom-file-label(for="picture") Picture of the goods
+							label(for="amount") Value per single quantity:
+							input.form-control(type="number", name="price" data-decimals="2" min="0.10" step="0.1", value=c.price)
+							label(for="quantity") Quantity:
+							input.form-control(type='number', name='quantity', min='1', value=c.quantity)
+							label(for="type") Type:
+							select.custom-select(name="type")
+								option(value='transport', selected=c.type=='transport') Transport
+								option(value='stock', selected=c.type=='stock') Stock
+								option(value='other', selected=c.type=='other') Other
+							if error
+								.alert.alert-danger(role='alert')=error
+							button.btn.btn-outline-success.btn-rounded.btn-block.my-4.waves-effect.z-depth-0(type="submit") Update

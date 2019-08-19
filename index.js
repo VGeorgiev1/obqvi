@@ -1,3 +1,4 @@
+/* eslint-disable no-return-assign */
 const express = require('express');
 const bodyParser = require('body-parser');
 const fileUpload = require('express-fileupload');
@@ -8,7 +9,7 @@ const sharp = require('sharp');
 const assert = require('./assert').assert;
 const userAssert = require('./userAssert').assert;
 
-const host = 'https://d86bff45.ngrok.io';
+const host = 'https://0375a47f.ngrok.io';
 
 const Promotion = require('./promotion');
 const Rpc = require('./rpc_service');
@@ -57,13 +58,21 @@ const loginware = wrapper(async (req, res, next) => {
   req.userId = sess.user_id;
   next();
 });
+app.get('/transactions', loginware, wrapper(async (req, res) => {
+  const userTransactions = (await db.getUserTransactions({ userId: req.userId }));
+  const promotionTransactions = await db.getPromotionTransactions({ userId: req.userId });
+
+  userTransactions.forEach(el => el.type = 'Order');
+  promotionTransactions.forEach((el) => { el.type = 'Promotion'; el.recipant = 'Obqvi'; });
+
+  res.render('balance', { transactions: (userTransactions.concat(promotionTransactions)) });
+}));
 
 app.get('/promo', loginware, wrapper(async (req, res) => {
   const rows = await db.getUserClassfieds({ userId: req.userId });
-
   assert(rows != null, 'Ads for promos are undefined!');
 
-  res.render('promo', { classifieds: rows, auth: req.authenticated });
+  res.render('promo', { classifieds: rows.filter(c => !c.status), promoted_classifieds: rows.filter(c => c.status), auth: req.authenticated });
 }));
 
 app.get('/shipments', loginware, wrapper(async (req, res) => {
@@ -114,6 +123,7 @@ app.post('/rpc', wrapper(async (req, res) => {
 }));
 
 app.post('/confrim', wrapper(async (req, res) => {
+  console.log(req.body.event_type);
   if (paypal.events[req.body.event_type]) {
     paypal.events[req.body.event_type](db, paypal, req.body.resource);
   }
@@ -198,19 +208,47 @@ app.get('/classified/:id', loginware, wrapper(async (req, res) => {
   const classified = await db.getJoinedClassified({ entityId: req.params.id });
 
   assert(classified != null, 'classified are not defined');
-  console.log(classified[0].picture)
+
   if (classified[0].picture) {
     classified[0].picture = Buffer.from(classified[0].picture).toString('base64');
   }
-  console.log(classified[0].picture)
+
   const templateObj = {
     c: classified[0],
     comments: classified.filter(r => r.comment_date !== null),
-    auth: req.authenticated
+    auth: req.authenticated,
+    isCreator: req.userId === classified[0].creator_id
   };
 
   res.render('classified', templateObj);
 }));
+app.post('/classified/update/:id', loginware, wrapper(async (req, res) => {
+  assert(req.params.id, 'classified id in update is missings');
+
+  const updatedClassified = req.body;
+
+  updatedClassified.userId = req.userId;
+  updatedClassified.entityId = req.params.id;
+
+  // eslint-disable-next-line no-unused-expressions
+  req.files ? updatedClassified.picture = req.files.picture.data : null;
+
+  await db.updateClassified(updatedClassified);
+
+  res.redirect(`/classified/${req.params.id}`);
+}));
+app.get('/classified/update/:id', loginware, wrapper(async (req, res) => {
+  assert(req.params.id, 'Classified id must be defined');
+
+  const classified = await db.getClassified({ entityId: req.params.id });
+
+  if (req.userId !== classified.creator_id) {
+    res.redirect('/');
+    return;
+  }
+  res.render('update', { c: classified });
+}));
+
 app.get('/logout', loginware, wrapper(async (req, res) => {
   await db.stopSession({ userId: req.userId });
   res.clearCookie('sessionToken');
@@ -292,7 +330,6 @@ app.get('/list/:type/:id', loginware, async (req, res) => {
     .forEach(function (c) {
       c.description = c.description.substring(0, 50) + '...';
     });
-
   const templateObj = {
     classifieds: OneDToTwoD(classifieds, 3),
     auth: req.authenticated,

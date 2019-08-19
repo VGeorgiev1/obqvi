@@ -1,0 +1,25 @@
+extends layout.pug
+block content
+	.container
+		table.table
+			thead
+				tr
+					th(scope="col") From
+					th(scope="col") To
+					th(scope="col") Type
+					th(scope="col") Quantity
+					th(scope="col") Total amount
+					th(scope="col") Transaction Id
+					th(scope="col") Related to  
+					th(scope="col") Date
+			tbody
+				each t in transactions
+					tr
+						td=t.sender
+						td=t.recipant
+						td=t.type
+						td=t.quantity
+						td=t.amount + '$'
+						td=t.transaction_id
+						td=t.classified_entity
+						td=t.created_at

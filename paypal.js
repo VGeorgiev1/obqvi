@@ -98,6 +98,38 @@ class Paypal {
     });
   }
 
+  payout ({ email }) {
+    const senderBatchId = Math.random().toString(36).substring(9);
+
+    const createPayoutJson = {
+      sender_batch_header: {
+        sender_batch_id: senderBatchId,
+        email_subject: 'You have a payment'
+      },
+      items: [
+        {
+          recipient_type: 'EMAIL',
+          amount: {
+            value: 0.90,
+            currency: 'USD'
+          },
+          receiver: 'mail5@gmail.com',
+          note: 'Thank you.',
+          sender_item_id: 'item_3'
+        }
+      ]
+    };
+    paypal.payout.create(createPayoutJson, 'false', function (error, payout) {
+      if (error) {
+        console.log(error.response);
+        throw error;
+      } else {
+        console.log('Create Single Payout Response');
+        console.log(payout);
+      }
+    });
+  }
+
   capturePayment ({ transactionId, total }) {
     return new Promise((resolve, reject) => {
       paypal.authorization.capture(transactionId, { amount: { total: total, currency: 'USD' }, is_final_capture: true }, (err, auth) => {

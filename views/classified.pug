@@ -20,6 +20,8 @@ block content
 							span.font-weight-bold.indigo-text.mr-2=c.quantity
 					if c.quantity
 						h5=`Quantity: ${c.quantity}`
+					if isCreator
+						a.ml-2.btn.btn-success(href=`/classified/update/${c.entity_id}`) Update
 					#errmsg.alert.alert-danger(role='alert', style="display:none")
 				.card.card-outline-secondary.my-4
 				.card-header

@@ -3,7 +3,6 @@ class Promotion {
     this.paypal = paypal;
     this.db = db;
     this.host = host;
-    this.bgn2dollarRate = 1.74;
   }
 
   async createPromotion ({ to, keys, userId }) {
@@ -64,7 +63,7 @@ class Promotion {
     } else if (!classifiedsCount || classifiedsCount <= 0) {
       return ({ error: 'Please select a classified!' });
     } else {
-      return ({ value: ((days * 2 * classifiedsCount) / this.bgn2dollarRate).toFixed(2) });
+      return ({ value: ((days * 2 * classifiedsCount)) });
     }
   }
 }

@@ -16,6 +16,21 @@ block content
 			.alert.alert-danger(role='alert')=error
 		#errmsg.alert.alert-danger(role='alert', style="display:none")
 		#success.alert.alert-primary(role='alert', style="display:none")
+		h1="Currently promoted classifieds: "
+		.list-group
+			table.table
+				thead
+					tr
+						th(scope="col") Classified
+						th(scope="col") Until
+						th(scope="col") Status
+				tbody
+					each c in promoted_classifieds
+						tr
+							td
+								a(href=`/classified/${c.entity_id}`)=c.title
+							td=c.end_date
+							td(bgcolor=c.status=='authorized' ? '#00FF00' : '#FFFF33')=c.status
 		script(src="/js/promotion.js")
 
 		h3="The promotion period starts when the transactaion is completed!"

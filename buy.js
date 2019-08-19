@@ -1,4 +1,4 @@
-const assert = require('./baseAssert');
+const assert = require('./assert').assert;
 class Buy {
   constructor (db, paypal, host) {
     this.db = db;
@@ -7,7 +7,7 @@ class Buy {
   }
 
   async buy (buyerId, entityId, quantity, callback, errorback) {
-    const classified = await this.db.getClassified(entityId);
+    const classified = await this.db.getClassified({ entityId });
     if (quantity > classified.quantity) {
       // eslint-disable-next-line standard/no-callback-literal
       callback({ error: 'Invalid quantity' });
@@ -43,7 +43,11 @@ class Buy {
     this.db.tx(async (client) => {
       const transaction = await this.paypal.createPay(payment);
 
-      assert(transaction != null);
+      assert(transaction != null, 'transaction is null');
+      if (classified.quantity - quantity === 0) {
+        await this.db.closeClassified({ entityId: classified.entity_id });
+      }
+      await this.db.setQuantity({ entityId: classified.entity_id, quantity: classified.quantity - quantity });
 
       const amount = classified.price * quantity;
       const p = await this.db.createPayment(
@@ -89,14 +93,11 @@ class Buy {
     const total = transaction.amount.total;
     const state = order.state;
 
-    payment.quantity -= payment.order_quantity;
     payment.entityId = payment.classified_entity;
 
     this.db.tx(async (client) => {
       if (state === 'COMPLETED') {
         await this.db.setUserTransactionState({ client, id: payment.id, state: 'order_completed' });
-        await this.db.setQuantity(payment);
-
         callback();
         return;
       } else {
@@ -106,7 +107,8 @@ class Buy {
         await this.db.setPaymentState({ client, transactionId: trId, state: transaction.state });
         await this.paypal.captureOrder({ client, orderId, total });
         await this.db.setUserTransactionState({ client, id: payId, state: 'order_completed' });
-        await this.db.setQuantity(payment);
+        const user = await this.db.getUser({ userId });
+        await this.paypal.payout({ email: user.email });
       }
       callback();
     }, errorback);

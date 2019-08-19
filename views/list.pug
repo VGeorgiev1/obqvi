@@ -5,9 +5,13 @@ mixin card(classified)
 			a(href="/classified/" + classified.entity_id)
 				button(class="btn",style="font-size:25px").text-primary.card-title=classified.title
 		.card-body
-			p.card-text=classified.description
-		if classified.picture
-			img.card-img-bottom(src='data:image/jpg;base64,' + classified.picture, alt="Card image")
+			if classified.picture
+				img.card-img-bottom(src='data:image/jpg;base64,' + classified.picture, alt="Card image")
+			else
+				p.card-text=classified.description
+		if classified.price
+			.card-footer
+				p.card-text=`Price: ${classified.price}$`
 block content
 
 	.container

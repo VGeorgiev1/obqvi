@@ -14,12 +14,13 @@ class Db {
         }
         if (!obj.client) {
           obj.client = await this.pool.connect();
+          try {
+            return await deffered(obj);
+          } finally {
+            obj.client.release();
+          }
         }
-        try {
-          return await deffered(obj);
-        } finally {
-          obj.client.release();
-        }
+        return (await deffered(obj));
       };
     }
   }
@@ -32,6 +33,7 @@ class Db {
       await callback(client);
       client.query('COMMIT');
     } catch (e) {
+      console.log(e);
       client.query('ROLLBACK');
       errorback(e);
     }
@@ -53,14 +55,10 @@ class Db {
 
   async getUserClassfieds ({ client, userId }) {
     return (await client.query(/* sql */`
-      SELECT
-      cl.id,
-      cl.status,
-      cl.entity_id,
-      cl.title
+      SELECT *
       FROM classifieds as cl
       LEFT JOIN promotions as p ON p.classified_entity = cl.entity_id
-      WHERE creator_id = $1 AND p.status IS NULL AND cl.closed_at IS NULL;
+      WHERE creator_id = $1 AND cl.closed_at IS NULL;
       `, [userId])).rows;
   }
 
@@ -119,7 +117,7 @@ class Db {
 
   async createTransaction ({ client, transactionId, state, userId, amount }) {
     return client.query(/* sql */`
-      INSERT INTO promotion_transactions(transaction_id, state, sender_id, amount) VALUES($1,$2,$3,$4)
+      INSERT INTO promotion_transactions(transaction_id, state, sender, amount) VALUES($1,$2,$3,$4)
     `, [transactionId, state, userId, amount]);
   }
 
@@ -136,12 +134,17 @@ class Db {
 
   async setTransactionState ({ client, transactionId, state }) {
     return client.query(/* sql */`
-
       UPDATE promotion_transactions
       SET state = $2
       WHERE transaction_id = $1
-
     `, [transactionId, state]);
+  }
+
+  async closeClassified ({ client, entityId }) {
+    return client.query(/* sql */`
+      UPDATE classifieds SET closed_at = NOW()
+      WHERE entity_id = $1
+    `, [entityId]);
   }
 
   async setPromotionStatus ({ client, transactionId, state }) {
@@ -209,6 +212,7 @@ class Db {
     return (await client.query(/* sql */`
       SELECT 
       cl.price,
+      cl.creator_id,
       cl.entity_id,
       cl.title, 
       cl.description, 
@@ -238,7 +242,7 @@ class Db {
 
   async getClassified ({ client, entityId }) {
     return (await client.query(/* sql */`
-      SELECT price,creator_id, entity_id, title, description, quantity, created_at as classified_date,picture FROM classifieds cl
+      SELECT * FROM classifieds cl
       WHERE entity_id = $1 AND closed_at IS NULL
     `, [entityId])).rows[0];
   }
@@ -259,16 +263,17 @@ class Db {
     `, [title, userId, description, picture, price, quantity, entityId, type])).rows[0];
   }
 
-  async updateClassified ({ client, entityId, title, description, price, quantity, picture, userId }) {
+  async updateClassified ({ client, entityId, title, description, price, quantity, type, picture, userId }) {
     return client.query(/* sql */`
       UPDATE classifieds SET
         title = COALESCE($2, title),
         description = COALESCE($3, description),
         price = COALESCE($4, price),
         quantity = COALESCE($5, quantity),
-        picture = COALESCE($6, picture)
-      WHERE entity_id = $1 AND creator_id = $7;
-    `, [entityId, title, description, price, quantity, picture, userId]);
+        picture = COALESCE($6, picture),
+        type = COALESCE($7, type)
+      WHERE entity_id = $1 AND creator_id = $8;
+    `, [entityId, title, description, price, quantity, picture, type, userId]);
   }
 
   async deleteClassified ({ client, entityId }) {
@@ -277,6 +282,32 @@ class Db {
         closed_at = NOW()
       WHERE entity_id = $1 AND closed_at IS NULL
     `, [entityId]);
+  }
+
+  async getUserSenderTransactions ({ client, userId }) {
+    return (await client.query(/* sql */`
+      SELECT * FROM user_transactions as ut
+      INNER JOIN user_payments as up ON up.id = ut.user_payment_id
+      INNER JOIN users as u ON up.sender = u.id
+      WHERE ut.sender = $1
+    `, [userId])).rows;
+  }
+
+  async getUserRecipantTransactions ({ client, userId }) {
+    return (await client.query(/* sql */`
+      SELECT * FROM user_transactions as ut
+      INNER JOIN user_payments as up ON up.id = ut.user_payment_id
+      INNER JOIN users as u ON up.recipant = u.id
+      WHERE ut.recipant = $1
+    `, [userId])).rows;
+  }
+
+  async getPromotionTransactions ({ client, userId }) {
+    return (await client.query(/* sql */`
+    SELECT * FROM promotion_transactions as pt
+    INNER JOIN promotions as p ON p.transaction_id = pt.transaction_id
+    WHERE sender = $1
+  `, [userId])).rows;
   }
 
   async getPromotedClassifieds ({ client, offset, limit }) {
@@ -291,7 +322,8 @@ class Db {
       c.quantity,
       u.username,
       u.email,
-      p.status
+      p.status,
+      c.price
       FROM classifieds as c
       INNER JOIN users u ON u.id = c.creator_id
       INNER JOIN promotions p ON p.classified_entity = c.entity_id
@@ -347,9 +379,15 @@ class Db {
     `, [userPaymentId, from, to, state, amount]);
   }
 
+  async createPayout ({ client, transactionId, amount, userId }) {
+    return client.query(/* sql */`
+      INSERT INTO user_payouts(transaction_id, recipiant, amount) VALUES ($1,$2,$3)
+    `, [transactionId, userId, amount]);
+  }
+
   async createPayment ({ client, transactionId, from, state, amount, quantity, entityId }) {
     return (await client.query(/* sql */`
-      INSERT INTO user_payments(transaction_id,sender_id,state,amount, quantity, classified_entity)
+      INSERT INTO user_payments(transaction_id,sender,state,amount, quantity, classified_entity)
       VALUES($1,$2,$3,$4,$5,$6)
       RETURNING id
     `, [transactionId, from, state, amount, quantity, entityId])).rows[0];
@@ -429,7 +467,7 @@ class Db {
         id SERIAL PRIMARY KEY,
         transaction_id TEXT UNIQUE NOT NULL,
         state TEXT NOT NULL,
-        sender_id int NOT NULL REFERENCES users (id),
+        sender int NOT NULL REFERENCES users (id),
         created_at timestamp DEFAULT NOW(),
         payer_id TEXT,
         token TEXT,
@@ -450,7 +488,7 @@ class Db {
         id SERIAL PRIMARY KEY,
         transaction_id TEXT UNIQUE NOT NULL,
         state TEXT NOT NULL,
-        sender_id int NOT NULL REFERENCES users (id),
+        sender int NOT NULL REFERENCES users (id),
         created_at timestamp DEFAULT NOW(),
         payer_id TEXT,
         token TEXT,
