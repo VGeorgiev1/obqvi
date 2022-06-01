@@ -21,7 +21,7 @@
     "paypal-rest-sdk": "^1.8.1",
     "pg": "^7.11.0",
     "pug": "^2.0.4",
-    "sharp": "^0.22.1"
+    "sharp": "^0.30.5"
   },
   "devDependencies": {
     "eslint": "^6.1.0",
